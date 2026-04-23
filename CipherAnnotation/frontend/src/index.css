@@ -1,0 +1,96 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom styles for annotation canvas */
+@layer components {
+  .canvas-container {
+    @apply relative w-full h-full bg-white border border-gray-200 rounded-lg shadow-sm;
+  }
+
+  .annotation-tool {
+    @apply inline-flex items-center justify-center p-2 rounded-md hover:bg-gray-100 cursor-pointer transition-colors;
+  }
+
+  .annotation-tool.active {
+    @apply bg-primary-100 text-primary-600;
+  }
+
+  .cipher-text {
+    @apply font-mono text-sm tracking-widest;
+  }
+
+  .annotation-label {
+    @apply absolute px-2 py-1 text-xs font-semibold bg-primary-600 text-white rounded shadow-md;
+  }
+
+  .form-input {
+    @apply w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-colors;
+  }
+
+  .btn-primary {
+    @apply px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors font-medium;
+  }
+
+  .btn-secondary {
+    @apply px-4 py-2 bg-gray-200 text-gray-900 rounded-md hover:bg-gray-300 transition-colors font-medium;
+  }
+
+  .btn-outline {
+    @apply px-4 py-2 border border-gray-300 text-gray-900 rounded-md hover:bg-gray-50 transition-colors font-medium;
+  }
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Landing page parchment texture — subtle warm noise + vignette */
+.bg-parchment {
+  background-color: #fbf7ee;
+  background-image:
+    radial-gradient(ellipse at top left, rgba(176, 141, 95, 0.12), transparent 55%),
+    radial-gradient(ellipse at bottom right, rgba(107, 84, 54, 0.10), transparent 55%),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.42  0 0 0 0 0.32  0 0 0 0 0.20  0 0 0 0.08 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+
+.bg-parchment-dark {
+  background-color: #f1e6cc;
+  background-image:
+    radial-gradient(ellipse at center, rgba(107, 84, 54, 0.15), transparent 70%),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.40  0 0 0 0 0.30  0 0 0 0 0.18  0 0 0 0.12 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+
+.cipher-symbols-bg {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='400' height='400' viewBox='0 0 400 400'><g fill='none' stroke='%236b5436' stroke-width='1.5' opacity='0.5'><circle cx='60' cy='60' r='12'/><path d='M40 120 l20 -20 l20 20 l-20 20 z'/><path d='M120 50 l0 25 M107 62 l25 0'/><path d='M180 70 q15 -20 30 0 q-15 20 -30 0'/><circle cx='260' cy='60' r='6' fill='%236b5436'/><path d='M300 45 l20 30 M300 75 l20 -30'/><path d='M350 60 l-10 -10 l0 20 z'/><path d='M60 200 q20 -30 40 0'/><path d='M130 190 l0 30 M118 205 l25 0 M118 215 l25 0'/><circle cx='200' cy='200' r='10'/><circle cx='200' cy='200' r='4' fill='%236b5436'/><path d='M260 180 l20 20 l-20 20 l-20 -20 z'/><path d='M330 190 l10 15 l-10 15 l-10 -15 z' fill='%236b5436' opacity='0.6'/><path d='M50 310 l0 20 M50 320 l-12 0 M50 320 l12 0'/><path d='M110 300 q20 15 0 30 q-20 -15 0 -30'/><circle cx='180' cy='320' r='8'/><path d='M170 320 l20 0'/><path d='M240 305 l0 30'/><path d='M230 320 l20 0'/><path d='M300 305 l15 15 l-15 15 z'/><path d='M360 310 l0 25 M353 315 l14 0'/></g></svg>");
+  background-size: 400px 400px;
+  background-repeat: repeat;
+}
+
+/* Handdrawn underline for accent words */
+.ink-underline {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='8' viewBox='0 0 200 8'><path d='M2 5 Q 50 1, 100 4 T 198 3' stroke='%234f46e5' stroke-width='2.5' fill='none' stroke-linecap='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: bottom left;
+  background-size: 100% 0.4em;
+  padding-bottom: 0.15em;
+}
+
+/* Smooth scroll for hash navigation */
+html {
+  scroll-behavior: smooth;
+}
