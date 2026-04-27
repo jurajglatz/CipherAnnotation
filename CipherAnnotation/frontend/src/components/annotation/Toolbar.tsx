@@ -239,7 +239,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         <div className="flex items-center gap-2">
           <Tooltip label="Zoom out">
             <button
-              onClick={() => onZoomChange(Math.max(50, zoom - 10))}
+              onClick={() => onZoomChange(Math.max(20, zoom - 10))}
               className="p-2 hover:bg-gray-100 rounded transition-colors"
             >
               <ZoomOut className="w-5 h-5 text-gray-700" />
@@ -249,8 +249,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           {/* Zoom slider */}
           <input
             type="range"
-            min="50"
-            max="200"
+            min="20"
+            max="300"
             step="10"
             value={zoom}
             onChange={(e) => onZoomChange(Number(e.target.value))}
@@ -260,7 +260,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
           <Tooltip label="Zoom in">
             <button
-              onClick={() => onZoomChange(Math.min(200, zoom + 10))}
+              onClick={() => onZoomChange(Math.min(300, zoom + 10))}
               className="p-2 hover:bg-gray-100 rounded transition-colors"
             >
               <ZoomIn className="w-5 h-5 text-gray-700" />

@@ -14,6 +14,7 @@ import {
   Plus,
   Grid3x3,
   List,
+  SquareDashed,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Document, ExportFormat, Page } from '@/types';
@@ -55,6 +56,7 @@ export const DocumentDetailPage: React.FC = () => {
   const [isExporting, setIsExporting] = useState(false);
 
   const [showProcessed, setShowProcessed] = useState(true);
+  const [showAnnotations, setShowAnnotations] = useState(true);
 
   // Fetch document and pages on mount
   useEffect(() => {
@@ -336,6 +338,45 @@ export const DocumentDetailPage: React.FC = () => {
               Add Pages
             </button>
 
+            <div className="flex gap-1 bg-parchment-100 border border-sepia-600/20 rounded-md p-1">
+              <button
+                onClick={() => setViewMode('grid')}
+                className={`p-2 rounded transition-colors ${
+                  viewMode === 'grid'
+                    ? 'bg-ink-900 text-parchment-50 shadow-sm'
+                    : 'text-ink-900/60 hover:text-ink-900'
+                }`}
+              >
+                <Grid3x3 className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setViewMode('list')}
+                className={`p-2 rounded transition-colors ${
+                  viewMode === 'list'
+                    ? 'bg-ink-900 text-parchment-50 shadow-sm'
+                    : 'text-ink-900/60 hover:text-ink-900'
+                }`}
+              >
+                <List className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex gap-1 bg-parchment-100 border border-sepia-600/20 rounded-md p-1">
+              <button
+                onClick={() => setShowAnnotations((v) => !v)}
+                title={showAnnotations ? 'Hide annotations' : 'Show annotations'}
+                aria-label={showAnnotations ? 'Hide annotations' : 'Show annotations'}
+                aria-pressed={showAnnotations}
+                className={`p-2 rounded transition-colors ${
+                  showAnnotations
+                    ? 'bg-ink-900 text-parchment-50 shadow-sm'
+                    : 'text-ink-900/60 hover:text-ink-900'
+                }`}
+              >
+                <SquareDashed className="w-4 h-4" />
+              </button>
+            </div>
+
             {/* Original / Processed toggle */}
             {pages.some((p) => p.processedImageUrl) && (
               <div className="flex items-center gap-1 bg-parchment-100 border border-sepia-600/20 rounded-md p-1">
@@ -361,29 +402,6 @@ export const DocumentDetailPage: React.FC = () => {
                 </button>
               </div>
             )}
-
-            <div className="flex gap-1 bg-parchment-100 border border-sepia-600/20 rounded-md p-1">
-              <button
-                onClick={() => setViewMode('grid')}
-                className={`p-2 rounded transition-colors ${
-                  viewMode === 'grid'
-                    ? 'bg-ink-900 text-parchment-50 shadow-sm'
-                    : 'text-ink-900/60 hover:text-ink-900'
-                }`}
-              >
-                <Grid3x3 className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setViewMode('list')}
-                className={`p-2 rounded transition-colors ${
-                  viewMode === 'list'
-                    ? 'bg-ink-900 text-parchment-50 shadow-sm'
-                    : 'text-ink-900/60 hover:text-ink-900'
-                }`}
-              >
-                <List className="w-4 h-4" />
-              </button>
-            </div>
           </div>
         </div>
 
@@ -419,6 +437,7 @@ export const DocumentDetailPage: React.FC = () => {
                   documentId={documentId!}
                   showProcessingStatus={true}
                   showProcessed={showProcessed}
+                  showAnnotations={showAnnotations}
                 />
               </div>
             ))}

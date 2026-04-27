@@ -4,7 +4,7 @@
  * Handles SVG overlay with drawing, selection, and resizing logic
  */
 
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useMemo } from 'react';
 import api from '@/services/api';
 import {
   Page,
@@ -232,6 +232,32 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  // Track container size so 100% zoom can mean "fit the available area"
+  const [containerSize, setContainerSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const update = () => setContainerSize({ width: el.clientWidth, height: el.clientHeight });
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Scale factor that makes the page fit exactly inside the canvas at zoom = 100%.
+  // Padding around the page (16px each side) is subtracted so the page never
+  // touches the canvas edges.
+  const fitFactor = useMemo(() => {
+    if (!containerSize.width || !containerSize.height || !page.width || !page.height) return 1;
+    const padding = 32;
+    const wf = (containerSize.width - padding) / page.width;
+    const hf = (containerSize.height - padding) / page.height;
+    return Math.max(0.001, Math.min(wf, hf));
+  }, [containerSize, page.width, page.height]);
+
+  const displayWidth = page.width * (zoom / 100) * fitFactor;
+  const displayHeight = page.height * (zoom / 100) * fitFactor;
 
   // Load image via authenticated request
   const [imageBlobUrl, setImageBlobUrl] = useState<string | null>(null);
@@ -704,8 +730,8 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
           src={imageBlobUrl || ''}
           alt="Page"
           style={{
-            width: `${(page.width * zoom) / 100}px`,
-            height: `${(page.height * zoom) / 100}px`,
+            width: `${displayWidth}px`,
+            height: `${displayHeight}px`,
             maxWidth: 'none',
             maxHeight: 'none',
             display: 'block',
@@ -732,8 +758,8 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
             position: 'absolute',
             top: 0,
             left: 0,
-            width: `${(page.width * zoom) / 100}px`,
-            height: `${(page.height * zoom) / 100}px`,
+            width: `${displayWidth}px`,
+            height: `${displayHeight}px`,
             userSelect: 'none',
             display: annotationsDisabled ? 'none' : undefined,
             ...(previewOps && previewOps.length > 0
