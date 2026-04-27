@@ -4,8 +4,9 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Page } from '@/types';
+import { Page, SectionAnnotation } from '@/types';
 import api from '@/services/api';
+import annotationService from '@/services/annotationService';
 import { CheckCircle, Clock, AlertCircle } from 'lucide-react';
 
 interface PageThumbnailProps {
@@ -15,6 +16,7 @@ interface PageThumbnailProps {
   isSelected?: boolean;
   showProcessingStatus?: boolean;
   showProcessed?: boolean;
+  showAnnotations?: boolean;
 }
 
 export const PageThumbnail: React.FC<PageThumbnailProps> = ({
@@ -24,13 +26,34 @@ export const PageThumbnail: React.FC<PageThumbnailProps> = ({
   isSelected = false,
   showProcessingStatus = false,
   showProcessed = false,
+  showAnnotations = false,
 }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
   const [imageBlobUrl, setImageBlobUrl] = useState<string | null>(null);
+  const [annotations, setAnnotations] = useState<SectionAnnotation[]>([]);
 
   const hasProcessedImage = !!page.processedImageUrl;
   const displayUrl = showProcessed ? (page.processedImageUrl ?? page.imageUrl) : page.imageUrl;
+
+  useEffect(() => {
+    if (!showAnnotations) {
+      setAnnotations([]);
+      return;
+    }
+    let cancelled = false;
+    annotationService
+      .getAnnotations(page.id)
+      .then((data) => {
+        if (!cancelled) setAnnotations(data);
+      })
+      .catch(() => {
+        if (!cancelled) setAnnotations([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showAnnotations, page.id]);
 
   // Load image via authenticated request
   useEffect(() => {
@@ -89,7 +112,10 @@ export const PageThumbnail: React.FC<PageThumbnailProps> = ({
       }`}
     >
       {/* Image Container */}
-      <div className="relative w-full aspect-video bg-gradient-to-br from-gray-200 to-gray-300 flex items-center justify-center overflow-hidden">
+      <div
+        className="relative w-full bg-gradient-to-br from-gray-200 to-gray-300 flex items-center justify-center overflow-hidden"
+        style={{ aspectRatio: page.width && page.height ? `${page.width} / ${page.height}` : '3 / 4' }}
+      >
         {hasError ? (
           <div className="flex flex-col items-center justify-center w-full h-full">
             <AlertCircle className="w-8 h-8 text-gray-400 mb-2" />
@@ -110,8 +136,53 @@ export const PageThumbnail: React.FC<PageThumbnailProps> = ({
                 alt={`Page ${page.pageNumber}`}
                 onLoad={handleImageLoad}
                 onError={handleImageError}
-                className="w-full h-full object-cover"
+                className="w-full h-full object-contain"
               />
+            )}
+            {showAnnotations && annotations.length > 0 && (
+              <svg
+                className="absolute inset-0 w-full h-full pointer-events-none"
+                viewBox={`0 0 ${page.width} ${page.height}`}
+                preserveAspectRatio="xMidYMid meet"
+              >
+                {annotations.flatMap((section) => [
+                  <rect
+                    key={`s-${section.id}`}
+                    x={section.boundingBox.x}
+                    y={section.boundingBox.y}
+                    width={section.boundingBox.width}
+                    height={section.boundingBox.height}
+                    fill="#4338ca10"
+                    stroke="#4338ca"
+                    strokeWidth={Math.max(page.width, page.height) / 400}
+                    strokeDasharray={`${Math.max(page.width, page.height) / 200},${Math.max(page.width, page.height) / 100}`}
+                  />,
+                  ...(section.pairAnnotations || []).flatMap((pair) => [
+                    <rect
+                      key={`p-${pair.id}`}
+                      x={pair.boundingBox.x}
+                      y={pair.boundingBox.y}
+                      width={pair.boundingBox.width}
+                      height={pair.boundingBox.height}
+                      fill="#5a7a3a10"
+                      stroke="#5a7a3a"
+                      strokeWidth={Math.max(page.width, page.height) / 400}
+                    />,
+                    ...(pair.elementAnnotations || []).map((element) => (
+                      <rect
+                        key={`e-${element.id}`}
+                        x={element.boundingBox.x}
+                        y={element.boundingBox.y}
+                        width={element.boundingBox.width}
+                        height={element.boundingBox.height}
+                        fill="#b91c1c10"
+                        stroke="#b91c1c"
+                        strokeWidth={Math.max(page.width, page.height) / 400}
+                      />
+                    )),
+                  ]),
+                ])}
+              </svg>
             )}
           </>
         )}
