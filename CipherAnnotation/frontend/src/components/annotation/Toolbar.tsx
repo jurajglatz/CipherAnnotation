@@ -19,6 +19,7 @@ import {
   HelpCircle,
   Wand2,
   Lock,
+  Sparkles,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Tooltip, Modal } from '@/components/shared';
@@ -43,6 +44,8 @@ interface ToolbarProps {
   documentId: string;
   isPreprocessOpen: boolean;
   onTogglePreprocess: () => void;
+  onAutoAnnotate: () => void;
+  isAutoAnnotating: boolean;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -63,6 +66,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   documentId,
   isPreprocessOpen,
   onTogglePreprocess,
+  onAutoAnnotate,
+  isAutoAnnotating,
 }) => {
   const navigate = useNavigate();
   const [showHelp, setShowHelp] = useState(false);
@@ -250,6 +255,32 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
       {/* Right section - Image toggle + Help */}
       <div className="flex items-center gap-2">
+        <Tooltip
+          label={
+            isPreprocessOpen
+              ? 'First close preprocessing'
+              : isAutoAnnotating
+                ? 'Detecting…'
+                : 'Auto-annotate this page (YOLOv11)'
+          }
+          position="left"
+        >
+          <button
+            onClick={onAutoAnnotate}
+            disabled={isPreprocessOpen || isAutoAnnotating}
+            className={`flex items-center gap-2 px-3 py-2 rounded transition-colors ${
+              isPreprocessOpen || isAutoAnnotating
+                ? 'opacity-60 cursor-not-allowed'
+                : 'hover:bg-gray-100 text-gray-700'
+            }`}
+          >
+            <Sparkles className={`w-5 h-5 ${isAutoAnnotating ? 'animate-pulse' : ''}`} style={{ color: '#7c3aed' }} />
+            <span className="text-xs font-medium">
+              {isAutoAnnotating ? 'Detecting…' : 'Auto-annotate'}
+            </span>
+          </button>
+        </Tooltip>
+
         <Tooltip label={isPreprocessOpen ? 'Close preprocessing' : 'Open preprocessing'} position="left">
           <button
             onClick={onTogglePreprocess}

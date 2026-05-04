@@ -48,6 +48,8 @@ docs/superpowers/
 
 # ---------- ML training artifacts ----------
 CipherAnnotation/train_grid/
+*.pt
+CipherAnnotation/backend/CipherAnnotation.API/ml_models/
 
 # ---------- App runtime ----------
 uploads/

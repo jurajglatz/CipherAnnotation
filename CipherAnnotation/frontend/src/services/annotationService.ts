@@ -64,6 +64,11 @@ class AnnotationService {
     return res.data;
   }
 
+  async autoAnnotate(pageId: string): Promise<Annotation[]> {
+    const res = await api.post<Annotation[]>(`/pages/${pageId}/auto-annotate`);
+    return res.data;
+  }
+
   async listForDocument(
     documentId: string,
     opts: { type?: AnnotationType; currentPageId?: string } = {},

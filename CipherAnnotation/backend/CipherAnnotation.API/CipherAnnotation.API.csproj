@@ -16,4 +16,8 @@
   <ItemGroup>
     <InternalsVisibleTo Include="CipherAnnotation.Tests" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="ml\**\*.*" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="ml_models\**\*.*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

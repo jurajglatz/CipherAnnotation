@@ -18,7 +18,7 @@ import {
   PreprocessOperation,
 } from '@/components/annotation';
 import { findDeepestContainer, isDescendantOf } from '@/components/annotation/AnnotationCanvas';
-import { pageService } from '@/services';
+import { pageService, annotationService } from '@/services';
 import { useAnnotations, useCaptions } from '@/hooks';
 import {
   Page,
@@ -115,6 +115,26 @@ export const AnnotationPage: React.FC = () => {
     ops: { name: string; value?: number }[];
   } | null>(null);
   const [isApplyingToAll, setIsApplyingToAll] = useState(false);
+  const [isAutoAnnotating, setIsAutoAnnotating] = useState(false);
+
+  const handleAutoAnnotate = useCallback(async () => {
+    if (!pageId || isAutoAnnotating) return;
+    try {
+      setIsAutoAnnotating(true);
+      const created = await annotationService.autoAnnotate(pageId);
+      await Promise.all([refetchAnnotations(), refetchCaptions()]);
+      if (created.length === 0) {
+        toast('No detections found on this page.', { icon: 'ℹ️' });
+      } else {
+        toast.success(`Auto-annotated ${created.length} region${created.length === 1 ? '' : 's'}`);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Auto-annotation failed';
+      toast.error(message);
+    } finally {
+      setIsAutoAnnotating(false);
+    }
+  }, [pageId, isAutoAnnotating, refetchAnnotations, refetchCaptions]);
 
   const fetchPreprocessHistory = useCallback(async () => {
     if (!documentId || !pageId) return;
@@ -845,6 +865,8 @@ export const AnnotationPage: React.FC = () => {
         documentId={documentId || ''}
         isPreprocessOpen={isPreprocessOpen}
         onTogglePreprocess={handleTogglePreprocess}
+        onAutoAnnotate={handleAutoAnnotate}
+        isAutoAnnotating={isAutoAnnotating}
       />
 
       <div className="flex flex-1 overflow-hidden">
