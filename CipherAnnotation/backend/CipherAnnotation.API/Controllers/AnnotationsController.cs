@@ -2,6 +2,7 @@ using AutoMapper;
 using CipherAnnotation.Core.DTOs.Annotation;
 using CipherAnnotation.Core.Entities;
 using CipherAnnotation.Core.Enums;
+using CipherAnnotation.Core.Interfaces;
 using CipherAnnotation.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -16,11 +17,19 @@ public class AnnotationsController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly IMapper _mapper;
+    private readonly IAutoAnnotationService _autoAnnotation;
+    private readonly IFileStorageService _fileStorage;
 
-    public AnnotationsController(AppDbContext db, IMapper mapper)
+    public AnnotationsController(
+        AppDbContext db,
+        IMapper mapper,
+        IAutoAnnotationService autoAnnotation,
+        IFileStorageService fileStorage)
     {
         _db = db;
         _mapper = mapper;
+        _autoAnnotation = autoAnnotation;
+        _fileStorage = fileStorage;
     }
 
     [HttpGet("api/pages/{pageId:guid}/annotations")]
@@ -315,6 +324,235 @@ public class AnnotationsController : ControllerBase
             rows = rows.OrderByDescending(r => r.PageId == cpid).ThenBy(r => r.PageNumber).ToList();
 
         return Ok(rows);
+    }
+
+    [HttpPost("api/pages/{pageId:guid}/auto-annotate")]
+    public async Task<ActionResult<IEnumerable<AnnotationDto>>> AutoAnnotate(Guid pageId, CancellationToken ct)
+    {
+        if (!await UserCanAccessPage(pageId)) return Forbid();
+
+        var page = await _db.Pages
+            .Include(p => p.Document)
+            .FirstOrDefaultAsync(p => p.Id == pageId, ct);
+        if (page is null) return NotFound();
+
+        var blobId = page.ProcessedImageBlobId ?? page.ImageBlobId;
+        var blob = await _fileStorage.GetAsync(blobId, ct);
+        if (blob is null) return Problem("Page image blob is missing.");
+
+        // Pixel coordinates from the model are relative to the *image* size.
+        // Annotations on this page are also stored in pixel coords (Page.Width/Height).
+        // If processed and original differ in size, prefer the same image we ran on.
+        var imageWidth = page.Width;
+        var imageHeight = page.Height;
+
+        var ext = Path.GetExtension(blob.FileName);
+        if (string.IsNullOrWhiteSpace(ext))
+        {
+            ext = blob.ContentType switch
+            {
+                "image/jpeg" => ".jpg",
+                "image/png"  => ".png",
+                "image/webp" => ".webp",
+                "image/tiff" => ".tiff",
+                _            => ".png",
+            };
+        }
+
+        IReadOnlyList<AutoDetection> detections;
+        try
+        {
+            detections = await _autoAnnotation.DetectAsync(blob.Data, ext, ct);
+        }
+        catch (Exception ex)
+        {
+            return Problem("Auto-annotation failed: " + ex.Message);
+        }
+
+        if (detections.Count == 0)
+            return Ok(Array.Empty<AnnotationDto>());
+
+        // Map class names → captions. The seeded captions are "Section", "Pair",
+        // "Element"; YOLO class names from the trained model are matched
+        // case-insensitively by substring (e.g. "section", "pair", "element").
+        var captions = await _db.Captions
+            .Where(c => c.DocumentId == page.DocumentId)
+            .ToListAsync(ct);
+
+        async Task<Caption> GetOrCreateCaption(string name)
+        {
+            var existing = captions.FirstOrDefault(c =>
+                string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (existing is not null) return existing;
+            var fresh = new Caption { DocumentId = page.DocumentId, Name = name };
+            _db.Captions.Add(fresh);
+            await _db.SaveChangesAsync(ct);
+            captions.Add(fresh);
+            return fresh;
+        }
+
+        Caption ResolveCaptionFor(string className)
+        {
+            var lc = className.ToLowerInvariant();
+            // Exact-/contains-match against existing captions first.
+            var hit = captions.FirstOrDefault(c => c.Name.ToLowerInvariant() == lc)
+                   ?? captions.FirstOrDefault(c => lc.Contains(c.Name.ToLowerInvariant()))
+                   ?? captions.FirstOrDefault(c => c.Name.ToLowerInvariant().Contains(lc));
+            return hit ?? captions.First();
+        }
+
+        // Ensure the canonical three exist (idempotent).
+        var sectionCaption = await GetOrCreateCaption("Section");
+        var pairCaption = await GetOrCreateCaption("Pair");
+        var elementCaption = await GetOrCreateCaption("Element");
+
+        // Map each detection to a caption.
+        var det = detections.Select(d =>
+        {
+            var lc = d.ClassName.ToLowerInvariant();
+            Caption cap = lc.Contains("section") ? sectionCaption
+                        : lc.Contains("pair")    ? pairCaption
+                        : lc.Contains("element") ? elementCaption
+                        : ResolveCaptionFor(d.ClassName);
+            return new
+            {
+                Detection = d,
+                Caption = cap,
+                Box = ClampBox(d.X1, d.Y1, d.X2, d.Y2, imageWidth, imageHeight),
+            };
+        }).ToList();
+
+        // Build hierarchy. Section ⊃ Pair ⊃ Element, by geometric containment
+        // (centre-of-box). Largest area picked when multiple containers match.
+        static bool Contains((float X, float Y, float W, float H) outer, (float X, float Y, float W, float H) inner)
+        {
+            // ≥80% of inner's area must lie inside outer.
+            var ix = MathF.Max(outer.X, inner.X);
+            var iy = MathF.Max(outer.Y, inner.Y);
+            var ax = MathF.Min(outer.X + outer.W, inner.X + inner.W);
+            var ay = MathF.Min(outer.Y + outer.H, inner.Y + inner.H);
+            var iw = MathF.Max(0, ax - ix);
+            var ih = MathF.Max(0, ay - iy);
+            var innerArea = MathF.Max(1e-3f, inner.W * inner.H);
+            return (iw * ih) / innerArea >= 0.8f;
+        }
+
+        var sections = det.Where(x => x.Caption.Id == sectionCaption.Id).ToList();
+        var pairs    = det.Where(x => x.Caption.Id == pairCaption.Id).ToList();
+        var elements = det.Where(x => x.Caption.Id == elementCaption.Id).ToList();
+
+        // Persist top-down so parents exist before children.
+        var created = new List<Annotation>();
+        var sectionAnnByDet = new Dictionary<int, Annotation>();
+        var pairAnnByDet = new Dictionary<int, Annotation>();
+
+        Annotation MakeAnnotation(Caption cap, (float X, float Y, float W, float H) box, Guid? parentId)
+            => new()
+            {
+                PageId = pageId,
+                ParentId = parentId,
+                CaptionId = cap.Id,
+                Type = AnnotationType.Text,
+                Orientation = 0,
+                BoundingBox = new BoundingBox { X = box.X, Y = box.Y, Width = box.W, Height = box.H },
+            };
+
+        for (int i = 0; i < sections.Count; i++)
+        {
+            var ann = MakeAnnotation(sectionCaption, sections[i].Box, null);
+            _db.Annotations.Add(ann);
+            sectionAnnByDet[i] = ann;
+            created.Add(ann);
+        }
+        await _db.SaveChangesAsync(ct);
+
+        for (int i = 0; i < pairs.Count; i++)
+        {
+            var p = pairs[i].Box;
+            Guid? parentId = null;
+            int? bestSec = null;
+            float bestArea = 0;
+            for (int s = 0; s < sections.Count; s++)
+            {
+                if (Contains(sections[s].Box, p))
+                {
+                    var a = sections[s].Box.W * sections[s].Box.H;
+                    if (bestSec is null || a > bestArea) { bestSec = s; bestArea = a; }
+                }
+            }
+            if (bestSec is { } si) parentId = sectionAnnByDet[si].Id;
+            var ann = MakeAnnotation(pairCaption, p, parentId);
+            _db.Annotations.Add(ann);
+            pairAnnByDet[i] = ann;
+            created.Add(ann);
+        }
+        await _db.SaveChangesAsync(ct);
+
+        for (int i = 0; i < elements.Count; i++)
+        {
+            var e = elements[i].Box;
+            Guid? parentId = null;
+            int? bestPair = null;
+            float bestArea = float.MaxValue;
+            for (int pi = 0; pi < pairs.Count; pi++)
+            {
+                if (Contains(pairs[pi].Box, e))
+                {
+                    var a = pairs[pi].Box.W * pairs[pi].Box.H;
+                    if (bestPair is null || a < bestArea) { bestPair = pi; bestArea = a; }
+                }
+            }
+            if (bestPair is { } pidx)
+            {
+                parentId = pairAnnByDet[pidx].Id;
+            }
+            else
+            {
+                // No pair contains this element — fall back to the smallest containing section.
+                int? bestSec = null;
+                var bestSecArea = float.MaxValue;
+                for (int s = 0; s < sections.Count; s++)
+                {
+                    if (Contains(sections[s].Box, e))
+                    {
+                        var a = sections[s].Box.W * sections[s].Box.H;
+                        if (bestSec is null || a < bestSecArea) { bestSec = s; bestSecArea = a; }
+                    }
+                }
+                if (bestSec is { } si) parentId = sectionAnnByDet[si].Id;
+            }
+            var ann = MakeAnnotation(elementCaption, e, parentId);
+            _db.Annotations.Add(ann);
+            created.Add(ann);
+        }
+        await _db.SaveChangesAsync(ct);
+
+        // Reload with includes, then return DTOs (mirrors the List endpoint).
+        var ids = created.Select(a => a.Id).ToList();
+        var loaded = await _db.Annotations
+            .Where(a => ids.Contains(a.Id))
+            .Include(a => a.BoundingBox)
+            .Include(a => a.Caption)
+            .ToListAsync(ct);
+
+        var pageAnns = await _db.Annotations.Where(a => a.PageId == pageId).ToListAsync(ct);
+        var numbers = ComputeCaptionNumbers(pageAnns);
+
+        return Ok(loaded.Select(a => _mapper.Map<AnnotationDto>(a) with
+        {
+            CaptionName = a.Caption!.Name,
+            CaptionNumber = numbers[a.Id],
+        }));
+    }
+
+    private static (float X, float Y, float W, float H) ClampBox(
+        float x1, float y1, float x2, float y2, int imageW, int imageH)
+    {
+        var xa = MathF.Max(0, MathF.Min(x1, x2));
+        var ya = MathF.Max(0, MathF.Min(y1, y2));
+        var xb = MathF.Min(imageW, MathF.Max(x1, x2));
+        var yb = MathF.Min(imageH, MathF.Max(y1, y2));
+        return (xa, ya, MathF.Max(1, xb - xa), MathF.Max(1, yb - ya));
     }
 
     // ---------- helpers ----------

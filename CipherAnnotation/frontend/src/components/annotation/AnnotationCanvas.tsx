@@ -832,39 +832,79 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
                   </>
                 )}
 
-                {/* Caption label — small translucent pill above box, falls inside if no room */}
+                {/* Caption label
+                    - selected: full "Name N" pill above the box (or inside if no room)
+                    - unselected: tiny "I·N" corner badge inside the box (e.g. "E·73"),
+                      hidden entirely when the box is too small to fit it. */}
                 {(() => {
-                  const labelText = `${ann.captionName} ${ann.captionNumber}`;
-                  const fontSize = 5 * (page.width / 512);
-                  const padX = 2 * (page.width / 512);
-                  const padY = 1 * (page.width / 512);
+                  const scale = page.width / 512;
+                  if (selected) {
+                    const labelText = `${ann.captionName} ${ann.captionNumber}`;
+                    const fontSize = 5 * scale;
+                    const padX = 2 * scale;
+                    const padY = 1 * scale;
+                    const charW = fontSize * 0.6;
+                    const labelW = labelText.length * charW + padX * 2;
+                    const labelH = fontSize + padY * 2;
+                    const aboveY = y - labelH - 2 * (page.height / 512);
+                    const placeAbove = aboveY > 0;
+                    const lx = x;
+                    const ly = placeAbove ? aboveY : y + 2 * (page.height / 512);
+                    return (
+                      <g pointerEvents="none">
+                        <rect
+                          x={lx}
+                          y={ly}
+                          width={labelW}
+                          height={labelH}
+                          rx={2 * scale}
+                          ry={2 * scale}
+                          fill={color}
+                          fillOpacity={0.95}
+                        />
+                        <text
+                          x={lx + padX}
+                          y={ly + padY + fontSize * 0.85}
+                          fontSize={fontSize}
+                          fill="white"
+                          fontWeight={700}
+                        >
+                          {labelText}
+                        </text>
+                      </g>
+                    );
+                  }
+                  const initial = (ann.captionName || '?').charAt(0).toUpperCase();
+                  const badgeText = `${initial}${ann.captionNumber}`;
+                  const fontSize = 3.5 * scale;
+                  const padX = 1.2 * scale;
+                  const padY = 0.6 * scale;
                   const charW = fontSize * 0.6;
-                  const labelW = labelText.length * charW + padX * 2;
-                  const labelH = fontSize + padY * 2;
-                  const aboveY = y - labelH - 2 * (page.height / 512);
-                  const placeAbove = aboveY > 0;
-                  const lx = x;
-                  const ly = placeAbove ? aboveY : y + 2 * (page.height / 512);
+                  const badgeW = badgeText.length * charW + padX * 2;
+                  const badgeH = fontSize + padY * 2;
+                  if (width < badgeW + 2 * scale || height < badgeH + 2 * scale) return null;
+                  const bx = x + 1.5 * scale;
+                  const by = y + 1.5 * scale;
                   return (
-                    <g pointerEvents="none" opacity={0.7}>
+                    <g pointerEvents="none" opacity={0.85}>
                       <rect
-                        x={lx}
-                        y={ly}
-                        width={labelW}
-                        height={labelH}
-                        rx={2 * (page.width / 512)}
-                        ry={2 * (page.width / 512)}
+                        x={bx}
+                        y={by}
+                        width={badgeW}
+                        height={badgeH}
+                        rx={1.5 * scale}
+                        ry={1.5 * scale}
                         fill={color}
-                        fillOpacity={0.6}
+                        fillOpacity={0.75}
                       />
                       <text
-                        x={lx + padX}
-                        y={ly + padY + fontSize * 0.85}
+                        x={bx + padX}
+                        y={by + padY + fontSize * 0.85}
                         fontSize={fontSize}
                         fill="white"
-                        fontWeight={600}
+                        fontWeight={700}
                       >
-                        {labelText}
+                        {badgeText}
                       </text>
                     </g>
                   );
