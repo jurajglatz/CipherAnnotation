@@ -38,29 +38,19 @@ public class AppDbContext : DbContext
     public DbSet<DocumentShare> DocumentShares { get; set; } = null!;
 
     /// <summary>
-    /// Gets or sets the SectionAnnotations database set.
-    /// </summary>
-    public DbSet<SectionAnnotation> SectionAnnotations { get; set; } = null!;
-
-    /// <summary>
-    /// Gets or sets the PairAnnotations database set.
-    /// </summary>
-    public DbSet<PairAnnotation> PairAnnotations { get; set; } = null!;
-
-    /// <summary>
-    /// Gets or sets the ElementAnnotations database set.
-    /// </summary>
-    public DbSet<ElementAnnotation> ElementAnnotations { get; set; } = null!;
-
-    /// <summary>
     /// Gets or sets the BoundingBoxes database set.
     /// </summary>
     public DbSet<BoundingBox> BoundingBoxes { get; set; } = null!;
 
     /// <summary>
-    /// Gets or sets the Symbols database set.
+    /// Gets or sets the Annotations database set.
     /// </summary>
-    public DbSet<Symbol> Symbols { get; set; } = null!;
+    public DbSet<Annotation> Annotations { get; set; } = null!;
+
+    /// <summary>
+    /// Gets or sets the Captions database set.
+    /// </summary>
+    public DbSet<Caption> Captions { get; set; } = null!;
 
     /// <summary>
     /// Gets or sets the FileBlobs database set.
@@ -170,6 +160,13 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => e.Visibility);
         });
 
+        modelBuilder.Entity<Document>()
+            .HasMany(d => d.Captions)
+            .WithOne(c => c.Document)
+            .HasForeignKey(c => c.DocumentId)
+            .IsRequired()
+            .OnDelete(DeleteBehavior.Cascade);
+
         // Configure Page entity
         modelBuilder.Entity<Page>(entity =>
         {
@@ -199,9 +196,9 @@ public class AppDbContext : DbContext
                 .IsRequired()
                 .OnDelete(DeleteBehavior.Cascade);
 
-            entity.HasMany(e => e.SectionAnnotations)
-                .WithOne(sa => sa.Page)
-                .HasForeignKey(sa => sa.PageId)
+            entity.HasMany(e => e.Annotations)
+                .WithOne(a => a.Page)
+                .HasForeignKey(a => a.PageId)
                 .IsRequired()
                 .OnDelete(DeleteBehavior.Cascade);
 
@@ -245,166 +242,76 @@ public class AppDbContext : DbContext
                 .IsUnique();
         });
 
-        // Configure SectionAnnotation entity
-        modelBuilder.Entity<SectionAnnotation>(entity =>
+        // Configure Caption entity
+        modelBuilder.Entity<Caption>(entity =>
         {
             entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+            entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.CreatedAt).HasDefaultValue(DateTime.UtcNow);
 
-            entity.Property(e => e.Id)
-                .ValueGeneratedOnAdd();
-
-            entity.Property(e => e.Label)
-                .HasMaxLength(100);
-
-            entity.Property(e => e.CreatedAt)
-                .HasDefaultValue(DateTime.UtcNow);
-
-            entity.HasOne(e => e.Page)
-                .WithMany(p => p.SectionAnnotations)
-                .HasForeignKey(e => e.PageId)
-                .IsRequired()
-                .OnDelete(DeleteBehavior.Cascade);
-
-            entity.HasOne(e => e.BoundingBox)
-                .WithOne(bb => bb.Section)
-                .HasForeignKey<BoundingBox>(bb => bb.SectionId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            entity.HasMany(e => e.PairAnnotations)
-                .WithOne(pa => pa.Section)
-                .HasForeignKey(pa => pa.SectionId)
-                .IsRequired()
-                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => new { e.DocumentId, e.Name }).IsUnique();
+            entity.HasIndex(e => new { e.DocumentId, e.CreatedAt });
         });
 
-        // Configure PairAnnotation entity
-        modelBuilder.Entity<PairAnnotation>(entity =>
+        // Configure Annotation entity
+        modelBuilder.Entity<Annotation>(entity =>
         {
             entity.HasKey(e => e.Id);
-
-            entity.Property(e => e.Id)
-                .ValueGeneratedOnAdd();
-
-            entity.Property(e => e.CreatedAt)
-                .HasDefaultValue(DateTime.UtcNow);
-
-            entity.HasOne(e => e.Section)
-                .WithMany(sa => sa.PairAnnotations)
-                .HasForeignKey(e => e.SectionId)
-                .IsRequired()
-                .OnDelete(DeleteBehavior.Cascade);
-
-            entity.HasOne(e => e.BoundingBox)
-                .WithOne(bb => bb.Pair)
-                .HasForeignKey<BoundingBox>(bb => bb.PairId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            entity.HasMany(e => e.ElementAnnotations)
-                .WithOne(ea => ea.Pair)
-                .HasForeignKey(ea => ea.PairId)
-                .IsRequired()
-                .OnDelete(DeleteBehavior.Cascade);
-        });
-
-        // Configure ElementAnnotation entity
-        modelBuilder.Entity<ElementAnnotation>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-
-            entity.Property(e => e.Id)
-                .ValueGeneratedOnAdd();
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
 
             entity.Property(e => e.Type)
                 .HasConversion<string>()
                 .HasMaxLength(50);
 
-            entity.Property(e => e.Content)
-                .HasMaxLength(1000);
+            entity.Property(e => e.Content).HasMaxLength(2000);
+            entity.Property(e => e.Transcription).HasMaxLength(2000);
 
-            entity.Property(e => e.Transcription)
-                .HasMaxLength(1000);
+            entity.Property(e => e.CreatedAt).HasDefaultValue(DateTime.UtcNow);
 
-            entity.Property(e => e.CreatedAt)
-                .HasDefaultValue(DateTime.UtcNow);
-
-            entity.HasOne(e => e.Pair)
-                .WithMany(pa => pa.ElementAnnotations)
-                .HasForeignKey(e => e.PairId)
+            entity.HasOne(e => e.Page)
+                .WithMany(p => p.Annotations)
+                .HasForeignKey(e => e.PageId)
                 .IsRequired()
                 .OnDelete(DeleteBehavior.Cascade);
 
-            entity.HasOne(e => e.Symbol)
-                .WithMany(s => s.Elements)
-                .HasForeignKey(e => e.SymbolId)
+            entity.HasOne(e => e.Caption)
+                .WithMany(c => c.Annotations)
+                .HasForeignKey(e => e.CaptionId)
+                .IsRequired()
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.Parent)
+                .WithMany(p => p.Children)
+                .HasForeignKey(e => e.ParentId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.TranscriptionRef)
+                .WithMany(t => t.ReferencedBy)
+                .HasForeignKey(e => e.TranscriptionRefId)
+                .IsRequired(false)
                 .OnDelete(DeleteBehavior.SetNull);
 
-            entity.HasOne(e => e.BoundingBox)
-                .WithOne(bb => bb.Element)
-                .HasForeignKey<BoundingBox>(bb => bb.ElementId)
-                .OnDelete(DeleteBehavior.Cascade);
+            entity.ToTable(t => t.HasCheckConstraint(
+                "CK_Annotation_TypeFields",
+                "(\"Type\" = 'Text'   AND \"Transcription\" IS NULL AND \"TranscriptionRefId\" IS NULL) OR " +
+                "(\"Type\" = 'Cipher' AND \"TranscriptionRefId\" IS NULL) OR " +
+                "(\"Type\" = 'Symbol' AND \"Transcription\" IS NULL)"));
+
+            entity.HasIndex(e => new { e.PageId, e.CaptionId, e.CreatedAt });
         });
 
         // Configure BoundingBox entity
         modelBuilder.Entity<BoundingBox>(entity =>
         {
             entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
 
-            entity.Property(e => e.Id)
-                .ValueGeneratedOnAdd();
-
-            // One-to-one with SectionAnnotation (optional)
-            entity.HasOne(e => e.Section)
-                .WithOne(sa => sa.BoundingBox)
-                .HasForeignKey<BoundingBox>(e => e.SectionId)
+            entity.HasOne(e => e.Annotation)
+                .WithOne(a => a.BoundingBox)
+                .HasForeignKey<BoundingBox>(e => e.AnnotationId)
                 .OnDelete(DeleteBehavior.Cascade);
-
-            // One-to-one with PairAnnotation (optional)
-            entity.HasOne(e => e.Pair)
-                .WithOne(pa => pa.BoundingBox)
-                .HasForeignKey<BoundingBox>(e => e.PairId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            // One-to-one with ElementAnnotation (optional)
-            entity.HasOne(e => e.Element)
-                .WithOne(ea => ea.BoundingBox)
-                .HasForeignKey<BoundingBox>(e => e.ElementId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            // Constraint: Only one FK should be set at a time
-            entity.ToTable(t => t.HasCheckConstraint("CK_BoundingBox_SingleFK",
-                "(CASE WHEN \"SectionId\" IS NOT NULL THEN 1 ELSE 0 END) + " +
-                "(CASE WHEN \"PairId\" IS NOT NULL THEN 1 ELSE 0 END) + " +
-                "(CASE WHEN \"ElementId\" IS NOT NULL THEN 1 ELSE 0 END) = 1"));
-        });
-
-        // Configure Symbol entity
-        modelBuilder.Entity<Symbol>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-
-            entity.Property(e => e.Id)
-                .ValueGeneratedOnAdd();
-
-            entity.Property(e => e.Code)
-                .IsRequired()
-                .HasMaxLength(50);
-
-            entity.HasOne(e => e.PreviewImageBlob)
-                .WithMany()
-                .HasForeignKey(e => e.PreviewImageBlobId)
-                .IsRequired(false)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            entity.Property(e => e.CreatedAt)
-                .HasDefaultValue(DateTime.UtcNow);
-
-            entity.HasMany(e => e.Elements)
-                .WithOne(ea => ea.Symbol)
-                .HasForeignKey(ea => ea.SymbolId)
-                .OnDelete(DeleteBehavior.SetNull);
-
-            entity.HasIndex(e => e.Code)
-                .IsUnique();
         });
 
         // Configure PreprocessHistoryEntry entity

@@ -1,200 +1,80 @@
 /**
- * Annotation service
- * Handles section, pair, and element annotation operations
+ * Annotation service — unified annotation CRUD.
  */
 
 import api from './api';
 import {
-  SectionAnnotation,
-  PairAnnotation,
-  ElementAnnotation,
+  Annotation,
   BoundingBox,
-  ElementType,
+  AnnotationType,
+  DocumentAnnotationRef,
 } from '../types';
 
-interface CreateSectionData {
-  label?: string;
-  orientation?: number;
-  boundingBox: BoundingBox;
-}
-
-interface CreatePairData {
-  order: number;
-  orientation?: number;
-  boundingBox: BoundingBox;
-}
-
-interface CreateElementData {
-  type: ElementType;
+export interface CreateAnnotationData {
+  parentId?: string | null;
+  captionId?: string;
+  type: AnnotationType;
   content?: string;
   transcription?: string;
-  symbolId?: string;
+  transcriptionRefId?: string | null;
+  orientation: number;
   boundingBox: BoundingBox;
-  orientation?: number;
 }
 
-export type UpdatePairData = Partial<CreatePairData> & { sectionId?: string };
-export type UpdateElementData = Partial<CreateElementData> & { pairId?: string };
+export type UpdateAnnotationData = Partial<CreateAnnotationData> & {
+  parentId?: string | null;
+};
 
 class AnnotationService {
-  /**
-   * Get all annotations for a page
-   */
-  async getAnnotations(pageId: string): Promise<SectionAnnotation[]> {
-    const response = await api.get<SectionAnnotation[]>(
-      `/pages/${pageId}/annotations`
-    );
-    return response.data;
+  async list(pageId: string): Promise<Annotation[]> {
+    const res = await api.get<Annotation[]>(`/pages/${pageId}/annotations`);
+    return res.data;
   }
 
-  // ========== SECTION ANNOTATIONS ==========
+  async create(pageId: string, data: CreateAnnotationData): Promise<Annotation> {
+    const res = await api.post<Annotation>(`/pages/${pageId}/annotations`, data);
+    return res.data;
+  }
 
-  /**
-   * Create new section annotation
-   */
-  async createSection(
+  async update(
     pageId: string,
-    data: CreateSectionData
-  ): Promise<SectionAnnotation> {
-    const response = await api.post<SectionAnnotation>(
-      `/pages/${pageId}/annotations/sections`,
-      data
+    annotationId: string,
+    data: UpdateAnnotationData,
+  ): Promise<Annotation> {
+    const res = await api.put<Annotation>(
+      `/pages/${pageId}/annotations/${annotationId}`,
+      data,
     );
-    return response.data;
+    return res.data;
   }
 
-  /**
-   * Update section annotation
-   */
-  async updateSection(
-    pageId: string,
-    sectionId: string,
-    data: Partial<CreateSectionData>
-  ): Promise<SectionAnnotation> {
-    const response = await api.put<SectionAnnotation>(
-      `/pages/${pageId}/annotations/sections/${sectionId}`,
-      data
-    );
-    return response.data;
+  async remove(pageId: string, annotationId: string): Promise<void> {
+    await api.delete(`/pages/${pageId}/annotations/${annotationId}`);
   }
 
-  /**
-   * Delete section annotation
-   */
-  async deleteSection(pageId: string, sectionId: string): Promise<void> {
-    await api.delete(`/pages/${pageId}/annotations/sections/${sectionId}`);
-  }
-
-  // ========== PAIR ANNOTATIONS ==========
-
-  /**
-   * Create new pair annotation within a section
-   */
-  async createPair(
-    pageId: string,
-    sectionId: string,
-    data: CreatePairData
-  ): Promise<PairAnnotation> {
-    const response = await api.post<PairAnnotation>(
-      `/pages/${pageId}/annotations/sections/${sectionId}/pairs`,
-      data
-    );
-    return response.data;
-  }
-
-  /**
-   * Update pair annotation
-   */
-  async updatePair(
-    pageId: string,
-    pairId: string,
-    data: UpdatePairData
-  ): Promise<PairAnnotation> {
-    const response = await api.put<PairAnnotation>(
-      `/pages/${pageId}/annotations/pairs/${pairId}`,
-      data
-    );
-    return response.data;
-  }
-
-  /**
-   * Delete pair annotation
-   */
-  async deletePair(pageId: string, pairId: string): Promise<void> {
-    await api.delete(`/pages/${pageId}/annotations/pairs/${pairId}`);
-  }
-
-  // ========== ELEMENT ANNOTATIONS ==========
-
-  /**
-   * Create new element annotation within a pair
-   */
-  async createElement(
-    pageId: string,
-    pairId: string,
-    data: CreateElementData
-  ): Promise<ElementAnnotation> {
-    const response = await api.post<ElementAnnotation>(
-      `/pages/${pageId}/annotations/pairs/${pairId}/elements`,
-      data
-    );
-    return response.data;
-  }
-
-  /**
-   * Update element annotation
-   */
-  async updateElement(
-    pageId: string,
-    elementId: string,
-    data: UpdateElementData
-  ): Promise<ElementAnnotation> {
-    const response = await api.put<ElementAnnotation>(
-      `/pages/${pageId}/annotations/elements/${elementId}`,
-      data
-    );
-    return response.data;
-  }
-
-  /**
-   * Delete element annotation
-   */
-  async deleteElement(pageId: string, elementId: string): Promise<void> {
-    await api.delete(`/pages/${pageId}/annotations/elements/${elementId}`);
-  }
-
-  // ========== BOUNDING BOX ==========
-
-  /**
-   * Update bounding box for annotation
-   * @param pageId Page ID
-   * @param boxId Box ID (section, pair, or element ID)
-   * @param data New bounding box coordinates
-   */
   async updateBoundingBox(
     pageId: string,
-    boxId: string,
-    data: BoundingBox
+    annotationId: string,
+    box: BoundingBox,
   ): Promise<BoundingBox> {
-    const response = await api.put<BoundingBox>(
-      `/pages/${pageId}/annotations/boundingboxes/${boxId}`,
-      data
+    const res = await api.put<BoundingBox>(
+      `/pages/${pageId}/annotations/boundingboxes/${annotationId}`,
+      box,
     );
-    return response.data;
+    return res.data;
   }
 
-  /**
-   * Bulk update bounding boxes
-   */
-  async updateBoundingBoxes(
-    pageId: string,
-    updates: Array<{ id: string; box: BoundingBox }>
-  ): Promise<BoundingBox[]> {
-    const response = await api.put<BoundingBox[]>(
-      `/pages/${pageId}/annotations/boundingboxes/bulk`,
-      { updates }
-    );
-    return response.data;
+  async listForDocument(
+    documentId: string,
+    opts: { type?: AnnotationType; currentPageId?: string } = {},
+  ): Promise<DocumentAnnotationRef[]> {
+    const params = new URLSearchParams();
+    if (opts.type) params.set('type', opts.type);
+    if (opts.currentPageId) params.set('currentPageId', opts.currentPageId);
+    const qs = params.toString();
+    const url = `/documents/${documentId}/annotations${qs ? `?${qs}` : ''}`;
+    const res = await api.get<DocumentAnnotationRef[]>(url);
+    return res.data;
   }
 }
 

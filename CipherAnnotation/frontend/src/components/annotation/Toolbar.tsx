@@ -8,8 +8,6 @@ import {
   ArrowLeft,
   MousePointer2,
   Square,
-  Grid3x3,
-  Circle,
   ZoomIn,
   ZoomOut,
   Maximize2,
@@ -25,7 +23,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { Tooltip, Modal } from '@/components/shared';
 
-type ToolType = 'select' | 'section' | 'pair' | 'element';
+export type ToolType = 'select' | 'annotation';
 
 interface ToolbarProps {
   currentTool: ToolType;
@@ -107,51 +105,19 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             </button>
           </Tooltip>
 
-          <Tooltip label={isPreprocessOpen ? 'First close preprocessing' : 'Draw Section — top-level region (S)'}>
+          <Tooltip label={isPreprocessOpen ? 'First close preprocessing' : 'Draw annotation'}>
             <button
-              onClick={() => onToolChange('section')}
+              onClick={() => onToolChange('annotation')}
               disabled={isPreprocessOpen}
               className={`p-2 rounded transition-colors ${
                 isPreprocessOpen
                   ? 'cursor-not-allowed'
-                  : currentTool === 'section'
+                  : currentTool === 'annotation'
                     ? 'bg-parchment-50 shadow-sm ring-1 ring-sepia-600/20'
                     : 'hover:bg-parchment-200/60'
               }`}
             >
               <Square className="w-5 h-5" style={{ color: '#4338ca' }} />
-            </button>
-          </Tooltip>
-
-          <Tooltip label={isPreprocessOpen ? 'First close preprocessing' : 'Draw Pair — inside a section (P)'}>
-            <button
-              onClick={() => onToolChange('pair')}
-              disabled={isPreprocessOpen}
-              className={`p-2 rounded transition-colors ${
-                isPreprocessOpen
-                  ? 'cursor-not-allowed'
-                  : currentTool === 'pair'
-                    ? 'bg-parchment-50 shadow-sm ring-1 ring-sepia-600/20'
-                    : 'hover:bg-parchment-200/60'
-              }`}
-            >
-              <Grid3x3 className="w-5 h-5" style={{ color: '#5a7a3a' }} />
-            </button>
-          </Tooltip>
-
-          <Tooltip label={isPreprocessOpen ? 'First close preprocessing' : 'Draw Element — inside a pair (E)'}>
-            <button
-              onClick={() => onToolChange('element')}
-              disabled={isPreprocessOpen}
-              className={`p-2 rounded transition-colors ${
-                isPreprocessOpen
-                  ? 'cursor-not-allowed'
-                  : currentTool === 'element'
-                    ? 'bg-parchment-50 shadow-sm ring-1 ring-sepia-600/20'
-                    : 'hover:bg-parchment-200/60'
-              }`}
-            >
-              <Circle className="w-5 h-5 text-cipher-red" />
             </button>
           </Tooltip>
 
@@ -339,22 +305,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       >
         <div className="space-y-5 text-sm text-gray-700">
           <section>
-            <h3 className="font-semibold text-gray-900 mb-1">Hierarchy</h3>
-            <p>
-              Annotations are nested: <span className="font-medium text-blue-600">Section</span> →{' '}
-              <span className="font-medium text-green-600">Pair</span> →{' '}
-              <span className="font-medium text-red-600">Element</span>. Pairs must be drawn inside a section,
-              elements inside a pair.
-            </p>
-          </section>
-
-          <section>
             <h3 className="font-semibold text-gray-900 mb-1">Drawing</h3>
-            <ol className="list-decimal pl-5 space-y-1">
-              <li>Pick a tool in the top-left (Section / Pair / Element).</li>
-              <li>Click once on the image to set the first corner.</li>
-              <li>Click again to set the opposite corner — the box is created.</li>
-            </ol>
+            <p>
+              Draw an annotation by holding the Annotation tool and dragging on the page.
+              Annotations fully inside another become its children automatically. Use the
+              Captions panel to rename the labels (Section, Pair, Element are just defaults).
+            </p>
           </section>
 
           <section>

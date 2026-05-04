@@ -39,7 +39,6 @@ export const Navbar: React.FC = () => {
     ? [
         { to: '/documents', label: 'My Documents' },
         { to: '/documents/public', label: 'Public Library' },
-        { to: '/symbols', label: 'Symbols' },
       ]
     : [];
 

@@ -1,27 +1,17 @@
 /**
  * AnnotationCanvas Component
- * Main canvas for drawing and managing bounding boxes on manuscript pages
- * Handles SVG overlay with drawing, selection, and resizing logic
+ * Main canvas for drawing and managing bounding boxes on manuscript pages.
+ * Type-agnostic: every annotation is unified; parent assignment is geometric
+ * (deepest container) and stroke colour is driven by the annotation's caption.
  */
 
 import React, { useRef, useEffect, useState, useMemo } from 'react';
 import api from '@/services/api';
-import {
-  Page,
-  SectionAnnotation,
-  PairAnnotation,
-  ElementAnnotation,
-  BoundingBox,
-} from '@/types';
+import { Page, Annotation, BoundingBox } from '@/types';
 import { buildPreprocessCss, PreprocessOperation } from './PreprocessPanel';
+import { captionColor } from './utils/captionColor';
 
-type ToolType = 'select' | 'section' | 'pair' | 'element';
-
-interface SelectedAnnotation {
-  id: string;
-  type: 'section' | 'pair' | 'element';
-  data: any;
-}
+type ToolType = 'select' | 'annotation';
 
 interface Point {
   x: number;
@@ -56,20 +46,19 @@ interface MoveState {
 
 interface CanvasProps {
   page: Page;
-  annotations: SectionAnnotation[];
+  annotations: Annotation[];
+  /** Document captions (sorted by createdAt) — used to predict the colour of a new annotation while drawing. */
+  captions?: { id: string; name: string; createdAt: string }[];
   currentTool: ToolType;
   zoom: number;
-  selectedAnnotation: SelectedAnnotation | null;
+  selectedAnnotation: Annotation | null;
   selectedIds?: Set<string>;
-  onAnnotationCreated: (boundingBox: BoundingBox) => void;
-  onAnnotationSelected: (annotation: SelectedAnnotation | null, additive?: boolean) => void;
-  onBoundingBoxUpdated: (
-    pageId: string,
-    boxId: string,
-    box: BoundingBox
-  ) => void;
+  /** Create a new annotation from the dragged box. Should resolve to the created Annotation. */
+  onCreateFromBox: (box: BoundingBox) => Promise<Annotation | null>;
+  onAnnotationSelected: (annotation: Annotation | null, additive?: boolean) => void;
+  /** Update the bounding box and (if movement carried it under a different parent) reparent. */
+  onDragEndAnnotation: (id: string, newBox: BoundingBox) => Promise<void> | void;
   onMultiBoundingBoxUpdated?: (
-    pageId: string,
     updates: Array<{ id: string; box: BoundingBox }>
   ) => void;
   showProcessed?: boolean;
@@ -83,32 +72,65 @@ interface CanvasProps {
   annotationsDisabled?: boolean;
 }
 
-const RESIZE_HANDLE_SIZE = 5;
+const RESIZE_HANDLE_SIZE = 4;
 const HANDLE_POSITIONS = [
-  { x: 0, y: 0 }, // top-left
-  { x: 0.5, y: 0 }, // top-center
-  { x: 1, y: 0 }, // top-right
-  { x: 1, y: 0.5 }, // right-center
-  { x: 1, y: 1 }, // bottom-right
-  { x: 0.5, y: 1 }, // bottom-center
-  { x: 0, y: 1 }, // bottom-left
-  { x: 0, y: 0.5 }, // left-center
+  { x: 0, y: 0 },
+  { x: 0.5, y: 0 },
+  { x: 1, y: 0 },
+  { x: 1, y: 0.5 },
+  { x: 1, y: 1 },
+  { x: 0.5, y: 1 },
+  { x: 0, y: 1 },
+  { x: 0, y: 0.5 },
 ];
 const HANDLE_CURSORS = [
   'nw-resize', 'n-resize', 'ne-resize', 'e-resize',
   'se-resize', 's-resize', 'sw-resize', 'w-resize',
 ];
 
+// Geometric containment helpers (used by both create and drag-end).
+// Threshold: a candidate counts as a "container" if at least 85% of the inner
+// box's area lies inside it. Lets users be slightly sloppy at the boundary
+// without accidentally promoting a child to top-level.
+const CONTAINMENT_THRESHOLD = 0.85;
+
+function overlapRatio(outer: BoundingBox, inner: BoundingBox): number {
+  const ix = Math.max(0, Math.min(outer.x + outer.width,  inner.x + inner.width)  - Math.max(outer.x, inner.x));
+  const iy = Math.max(0, Math.min(outer.y + outer.height, inner.y + inner.height) - Math.max(outer.y, inner.y));
+  const innerArea = inner.width * inner.height;
+  if (innerArea <= 0) return 0;
+  return (ix * iy) / innerArea;
+}
+
+function findDeepestContainer(all: Annotation[], inner: BoundingBox): Annotation | null {
+  const containers = all.filter(a => overlapRatio(a.boundingBox, inner) >= CONTAINMENT_THRESHOLD);
+  if (containers.length === 0) return null;
+  return containers.reduce((best, cur) =>
+    cur.boundingBox.width * cur.boundingBox.height < best.boundingBox.width * best.boundingBox.height ? cur : best,
+  );
+}
+
+function isDescendantOf(all: Annotation[], candidateId: string, ancestorId: string): boolean {
+  const byId = new Map(all.map(a => [a.id, a]));
+  let cur: string | null = candidateId;
+  while (cur) {
+    if (cur === ancestorId) return true;
+    cur = byId.get(cur)?.parentId ?? null;
+  }
+  return false;
+}
+
 export const AnnotationCanvas: React.FC<CanvasProps> = ({
   page,
   annotations,
+  captions,
   currentTool,
   zoom,
   selectedAnnotation,
   selectedIds,
-  onAnnotationCreated,
+  onCreateFromBox,
   onAnnotationSelected,
-  onBoundingBoxUpdated,
+  onDragEndAnnotation,
   onMultiBoundingBoxUpdated,
   showProcessed = false,
   livePreview = null,
@@ -124,7 +146,6 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
-  // State - use ref as source of truth for drawing to avoid stale closures
   const [drawing, setDrawingState] = useState<DrawingState>({
     isDrawing: false,
     points: [],
@@ -167,10 +188,9 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
     movingRef.current = val;
     setMovingState(val);
   };
-  // Map of other selected ids -> their original boxes during a group move
   const multiMoveOriginsRef = useRef<Map<string, BoundingBox>>(new Map());
 
-  // Panning state (cmd/ctrl + drag scrolls the container)
+  // Panning state
   const panningRef = useRef<{
     active: boolean;
     startX: number;
@@ -197,7 +217,6 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
     };
   }, []);
 
-  // Cleanup listeners on unmount
   useEffect(() => {
     return () => {
       if (drawMoveHandlerRef.current) {
@@ -206,7 +225,6 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
     };
   }, []);
 
-  // Escape cancels any in-progress drawing/move/resize (selection is cleared at the page level)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
@@ -233,7 +251,6 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  // Track container size so 100% zoom can mean "fit the available area"
   const [containerSize, setContainerSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
   useEffect(() => {
     const el = containerRef.current;
@@ -245,9 +262,6 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
     return () => ro.disconnect();
   }, []);
 
-  // Scale factor that makes the page fit exactly inside the canvas at zoom = 100%.
-  // Padding around the page (16px each side) is subtracted so the page never
-  // touches the canvas edges.
   const fitFactor = useMemo(() => {
     if (!containerSize.width || !containerSize.height || !page.width || !page.height) return 1;
     const padding = 32;
@@ -259,7 +273,6 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
   const displayWidth = page.width * (zoom / 100) * fitFactor;
   const displayHeight = page.height * (zoom / 100) * fitFactor;
 
-  // Load image via authenticated request
   const [imageBlobUrl, setImageBlobUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -280,11 +293,9 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
     };
   }, [page.imageUrl, page.processedImageUrl, showProcessed]);
 
-  // Convert screen coordinates to SVG/image coordinates
   const screenToImageCoords = (screenX: number, screenY: number) => {
     const svg = svgRef.current;
     if (!svg) return { x: 0, y: 0 };
-
     const rect = svg.getBoundingClientRect();
     return {
       x: (screenX - rect.left) / (rect.width / page.width),
@@ -292,89 +303,9 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
     };
   };
 
-  // Find annotation by ID
-  const findAnnotationById = (
-    id: string
-  ): { type: 'section' | 'pair' | 'element'; data: any } | null => {
-    for (const section of annotations) {
-      if (section.id === id) {
-        return { type: 'section', data: section };
-      }
-      for (const pair of section.pairAnnotations || []) {
-        if (pair.id === id) {
-          return { type: 'pair', data: pair };
-        }
-        for (const element of pair.elementAnnotations || []) {
-          if (element.id === id) {
-            return { type: 'element', data: element };
-          }
-        }
-      }
-    }
-    return null;
-  };
+  const findAnnotationById = (id: string): Annotation | null =>
+    annotations.find((a) => a.id === id) ?? null;
 
-  // Get all boxes for rendering
-  const getAllBoxes = () => {
-    const boxes: Array<{
-      id: string;
-      type: 'section' | 'pair' | 'element';
-      box: BoundingBox;
-      data: any;
-    }> = [];
-
-    for (const section of annotations) {
-      boxes.push({
-        id: section.id,
-        type: 'section',
-        box: section.boundingBox,
-        data: section,
-      });
-
-      for (const pair of section.pairAnnotations || []) {
-        boxes.push({
-          id: pair.id,
-          type: 'pair',
-          box: pair.boundingBox,
-          data: pair,
-        });
-
-        for (const element of pair.elementAnnotations || []) {
-          boxes.push({
-            id: element.id,
-            type: 'element',
-            box: element.boundingBox,
-            data: element,
-          });
-        }
-      }
-    }
-
-    return boxes;
-  };
-
-  // Get box color based on type
-  const getBoxColor = (type: 'section' | 'pair' | 'element'): string => {
-    switch (type) {
-      case 'section':
-        return '#4338ca';
-      case 'pair':
-        return '#5a7a3a';
-      case 'element':
-        return '#b91c1c';
-      default:
-        return '#6b5436';
-    }
-  };
-
-  // Get box stroke style
-  const getBoxStroke = (type: 'section' | 'pair' | 'element'): string => {
-    if (type === 'section') return '2,4';
-    return '';
-  };
-
-  // Start a pan gesture on the scrollable container. Optional onIdleUp fires
-  // when mouseup happens without the drag threshold being exceeded (click only).
   const startPan = (e: React.MouseEvent, onIdleUp?: () => void) => {
     if (!containerRef.current) return false;
     const container = containerRef.current;
@@ -422,13 +353,10 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
     return true;
   };
 
-  // Handle mouse down
   const handleMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
     if (e.button === 2) return;
-    e.preventDefault(); // Prevent browser native drag behavior
+    e.preventDefault();
 
-    // Cmd/Ctrl + drag → pan the canvas (only needed with drawing tools;
-    // in select mode plain drag pans, see below).
     if ((e.metaKey || e.ctrlKey) && currentTool !== 'select' &&
         !drawingRef.current.isDrawing &&
         !movingRef.current.isMoving &&
@@ -438,7 +366,7 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
 
     const coords = screenToImageCoords(e.clientX, e.clientY);
 
-    // If currently moving, second click finalizes
+    // Finalize an in-progress move
     if (movingRef.current.isMoving) {
       if (movePreviewRef.current) {
         const newBox = movePreviewRef.current;
@@ -460,9 +388,9 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
               },
             });
           });
-          onMultiBoundingBoxUpdated(page.id, updates);
+          onMultiBoundingBoxUpdated(updates);
         } else {
-          onBoundingBoxUpdated(page.id, movingRef.current.boxId, newBox);
+          void onDragEndAnnotation(movingRef.current.boxId, newBox);
         }
       }
       setMoving({ isMoving: false, boxId: '', originalBox: { x: 0, y: 0, width: 0, height: 0 }, offsetX: 0, offsetY: 0 });
@@ -471,9 +399,8 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
       return;
     }
 
-    // If currently resizing, second click finalizes
+    // Finalize an in-progress resize
     if (resizingRef.current.isResizing) {
-      // Apply the final position via onBoundingBoxUpdated
       const r = resizingRef.current;
       const { originalBox, handleIndex, startX, startY } = r;
       const deltaX = coords.x - startX;
@@ -491,7 +418,7 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
       newBox.x = Math.max(0, Math.min(newBox.x, page.width - newBox.width));
       newBox.y = Math.max(0, Math.min(newBox.y, page.height - newBox.height));
 
-      onBoundingBoxUpdated(page.id, r.boxId, newBox);
+      void onDragEndAnnotation(r.boxId, newBox);
       setResizing({
         isResizing: false,
         boxId: '',
@@ -504,26 +431,23 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
       return;
     }
 
-    // Check for resize handle click (first click starts resize) — disabled in multi-select
+    // Resize handle click (single-select only)
     if (selectedAnnotation && currentTool === 'select' && !isLocked(selectedAnnotation.id) && !isMultiSelect) {
       const selected = findAnnotationById(selectedAnnotation.id);
       if (selected) {
-        const { x, y, width, height } = selected.data.boundingBox;
-
+        const { x, y, width, height } = selected.boundingBox;
         for (let i = 0; i < HANDLE_POSITIONS.length; i++) {
           const handleX = x + width * HANDLE_POSITIONS[i].x;
           const handleY = y + height * HANDLE_POSITIONS[i].y;
-
           const distance = Math.sqrt(
             Math.pow(coords.x - handleX, 2) + Math.pow(coords.y - handleY, 2)
           );
-
           if (distance < 15) {
             setResizing({
               isResizing: true,
               boxId: selectedAnnotation.id,
               handleIndex: i,
-              originalBox: { ...selected.data.boundingBox },
+              originalBox: { ...selected.boundingBox },
               startX: coords.x,
               startY: coords.y,
             });
@@ -533,15 +457,15 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
       }
     }
 
-    // Check if clicking inside any selected box — start moving (works for single and multi)
+    // Click inside any selected box → start moving (single or group)
     if (currentTool === 'select' && effectiveSelectedIds.size > 0 && !(e.metaKey || e.ctrlKey || e.shiftKey)) {
       for (const id of effectiveSelectedIds) {
         if (isLocked(id)) continue;
         const found = findAnnotationById(id);
         if (!found) continue;
-        const { x, y, width, height } = found.data.boundingBox;
+        const { x, y, width, height } = found.boundingBox;
         if (coords.x >= x && coords.x <= x + width && coords.y >= y && coords.y <= y + height) {
-          const origBox = { ...found.data.boundingBox };
+          const origBox = { ...found.boundingBox };
           setMoving({
             isMoving: true,
             boxId: id,
@@ -550,12 +474,11 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
             offsetY: coords.y - y,
           });
           setMovePreview({ ...origBox });
-          // Capture original boxes for other selected items
           const others = new Map<string, BoundingBox>();
           effectiveSelectedIds.forEach((otherId) => {
             if (otherId === id || isLocked(otherId)) return;
             const o = findAnnotationById(otherId);
-            if (o) others.set(otherId, { ...o.data.boundingBox });
+            if (o) others.set(otherId, { ...o.boundingBox });
           });
           multiMoveOriginsRef.current = others;
           return;
@@ -563,29 +486,21 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
       }
     }
 
-    // Check for clicking on existing annotations
+    // Selecting an annotation by click (deepest = topmost in z-order = smallest area)
     if (currentTool === 'select') {
       const additive = e.metaKey || e.ctrlKey || e.shiftKey;
-      const boxes = getAllBoxes();
-      for (let i = boxes.length - 1; i >= 0; i--) {
-        const box = boxes[i];
-        const { x, y, width, height } = box.box;
-
-        if (
-          coords.x >= x &&
-          coords.x <= x + width &&
-          coords.y >= y &&
-          coords.y <= y + height
-        ) {
-          onAnnotationSelected({
-            id: box.id,
-            type: box.type,
-            data: box.data,
-          }, additive);
-          return;
-        }
+      const hitCandidates = annotations.filter((a) => {
+        const { x, y, width, height } = a.boundingBox;
+        return coords.x >= x && coords.x <= x + width && coords.y >= y && coords.y <= y + height;
+      });
+      if (hitCandidates.length > 0) {
+        // smallest area first (deepest container under cursor)
+        hitCandidates.sort((a, b) =>
+          a.boundingBox.width * a.boundingBox.height - b.boundingBox.width * b.boundingBox.height
+        );
+        onAnnotationSelected(hitCandidates[0], additive);
+        return;
       }
-      // Empty area: plain drag pans the canvas; a click without drag deselects.
       const started = startPan(e, () => {
         if (!additive) onAnnotationSelected(null);
       });
@@ -593,14 +508,9 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
       return;
     }
 
-    // Two-click drawing: first click = top-left, second click = bottom-right
-    if (
-      currentTool === 'section' ||
-      currentTool === 'pair' ||
-      currentTool === 'element'
-    ) {
+    // Two-click drawing (single annotation tool)
+    if (currentTool === 'annotation') {
       if (!drawingRef.current.isDrawing) {
-        // First click - set starting corner and attach mousemove to document
         setDrawing({
           isDrawing: true,
           points: [],
@@ -623,7 +533,6 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
         drawMoveHandlerRef.current = moveHandler;
         document.addEventListener('mousemove', moveHandler);
       } else {
-        // Second click - finalize bounding box and remove listener
         if (drawMoveHandlerRef.current) {
           document.removeEventListener('mousemove', drawMoveHandlerRef.current);
           drawMoveHandlerRef.current = null;
@@ -636,7 +545,7 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
         const height = Math.abs(coords.y - d.startY);
 
         if (width > 5 && height > 5) {
-          onAnnotationCreated({ x, y, width, height });
+          void createFromBox({ x, y, width, height });
         }
 
         setDrawing({
@@ -652,7 +561,12 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
     }
   };
 
-  // Resize preview state
+  // Single create flow — defaults to type 'Text', server picks captionId by depth.
+  async function createFromBox(box: BoundingBox) {
+    const created = await onCreateFromBox(box);
+    if (created) onAnnotationSelected(created);
+  }
+
   const [resizePreview, setResizePreviewState] = useState<BoundingBox | null>(null);
   const resizePreviewRef = useRef<BoundingBox | null>(null);
   const setResizePreview = (val: BoundingBox | null) => {
@@ -660,7 +574,6 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
     setResizePreviewState(val);
   };
 
-  // Move preview state
   const [movePreview, setMovePreviewState] = useState<BoundingBox | null>(null);
   const movePreviewRef = useRef<BoundingBox | null>(null);
   const setMovePreview = (val: BoundingBox | null) => {
@@ -668,9 +581,7 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
     setMovePreviewState(val);
   };
 
-
   const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
-    // Handle move preview
     if (movingRef.current.isMoving) {
       const svg = svgRef.current;
       if (!svg) return;
@@ -683,7 +594,6 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
       setMovePreview({ ...origBox, x: newX, y: newY });
     }
 
-    // Handle resize preview
     if (resizingRef.current.isResizing) {
       const svg = svgRef.current;
       if (!svg) return;
@@ -708,11 +618,19 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
   };
 
   const handleMouseUp = (_e: React.MouseEvent<SVGSVGElement>) => {
-    // No drag-based resize; resize is click-to-start / click-to-finish
+    // Resize/move finalize on click, not on mouseup.
   };
 
-  // Render boxes
-  const boxes = getAllBoxes();
+  // Render annotations: outer→inner so deepest paint last.
+  const sortedForRender = useMemo(
+    () => [...annotations].sort(
+      (a, b) =>
+        (b.boundingBox.width * b.boundingBox.height) -
+        (a.boundingBox.width * a.boundingBox.height)
+    ),
+    [annotations]
+  );
+
   const isSelected = (id: string) => effectiveSelectedIds.has(id);
   const isPrimary = (id: string) => selectedAnnotation?.id === id;
 
@@ -793,7 +711,6 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
           preserveAspectRatio="none"
           viewBox={`0 0 ${page.width} ${page.height}`}
         >
-          {/* Transparent background to capture mouse events */}
           <rect
             x={0}
             y={0}
@@ -802,17 +719,15 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
             fill="transparent"
             pointerEvents="all"
           />
-          {/* Render all boxes */}
-          {boxes.map((box) => {
-            const selected = isSelected(box.id);
-            const primary = isPrimary(box.id);
+          {sortedForRender.map((ann) => {
+            const selected = isSelected(ann.id);
+            const primary = isPrimary(ann.id);
             const isBeingResized = primary && resizing.isResizing;
-            const isBeingMovedPrimary = moving.isMoving && moving.boxId === box.id;
-            const hasLivePreview = livePreview && livePreview.id === box.id;
-            // During group move, offset non-primary selected boxes by same delta
+            const isBeingMovedPrimary = moving.isMoving && moving.boxId === ann.id;
+            const hasLivePreview = livePreview && livePreview.id === ann.id;
             let groupMoveBox: BoundingBox | null = null;
             if (moving.isMoving && movePreview && selected && !isBeingMovedPrimary) {
-              const orig = multiMoveOriginsRef.current.get(box.id);
+              const orig = multiMoveOriginsRef.current.get(ann.id);
               if (orig) {
                 const dx = movePreview.x - moving.originalBox.x;
                 const dy = movePreview.y - moving.originalBox.y;
@@ -831,41 +746,36 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
                   ? groupMoveBox
                   : hasLivePreview && livePreview!.boundingBox
                     ? livePreview!.boundingBox!
-                    : box.box;
+                    : ann.boundingBox;
             const { x, y, width, height } = displayBox;
-            const color = getBoxColor(box.type);
-            const strokeDasharray = getBoxStroke(box.type);
+            const color = captionColor(ann.captionName);
             const orientation = hasLivePreview && livePreview!.orientation !== undefined
               ? livePreview!.orientation
-              : Number(box.data?.orientation) || 0;
+              : Number(ann.orientation) || 0;
             const cx = x + width / 2;
             const cy = y + height / 2;
             const groupTransform = orientation ? `rotate(${orientation} ${cx} ${cy})` : undefined;
 
             return (
-              <g key={box.id} transform={groupTransform}>
-                {/* Rectangle */}
+              <g key={ann.id} transform={groupTransform}>
                 <rect
                   x={x}
                   y={y}
                   width={width}
                   height={height}
-                  fill={selected ? `${color}55` : `${color}10`}
+                  fill={color}
+                  fillOpacity={selected ? 0.33 : 0.06}
                   stroke={color}
                   strokeWidth={selected ? 5 : 4}
-                  strokeDasharray={isBeingResized || isBeingMovedPrimary || groupMoveBox ? '4,4' : strokeDasharray}
+                  strokeDasharray={isBeingResized || isBeingMovedPrimary || groupMoveBox ? '4,4' : ''}
                   pointerEvents="none"
                 />
 
-                {/* Resize handles for the primary selected annotation (single-select only) */}
-                {primary && currentTool === 'select' && !isMultiSelect && !isLocked(box.id) && (
+                {primary && currentTool === 'select' && !isMultiSelect && !isLocked(ann.id) && (
                   <>
                     {HANDLE_POSITIONS.map((pos, idx) => {
                       const isActiveHandle = isBeingResized && resizing.handleIndex === idx;
-                      // Use the ORIGINAL box position for handle click detection, not preview
-                      const origBox = box.box;
-                      const handleCX = origBox.x + origBox.width * pos.x;
-                      const handleCY = origBox.y + origBox.height * pos.y;
+                      const origBox = ann.boundingBox;
                       return (
                         <rect
                           key={`handle-${idx}`}
@@ -887,7 +797,6 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
 
                             const coords = screenToImageCoords(e.clientX, e.clientY);
 
-                            // If already resizing, finalize on any handle click too
                             if (resizingRef.current.isResizing) {
                               const r = resizingRef.current;
                               const deltaX = coords.x - r.startX;
@@ -902,16 +811,15 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
                               nb.height = Math.max(20, nb.height);
                               nb.x = Math.max(0, Math.min(nb.x, page.width - nb.width));
                               nb.y = Math.max(0, Math.min(nb.y, page.height - nb.height));
-                              onBoundingBoxUpdated(page.id, r.boxId, nb);
+                              void onDragEndAnnotation(r.boxId, nb);
                               setResizing({ isResizing: false, boxId: '', handleIndex: 0, originalBox: { x: 0, y: 0, width: 0, height: 0 }, startX: 0, startY: 0 });
                               setResizePreview(null);
                               return;
                             }
 
-                            // Start resize using original box (not preview)
                             setResizing({
                               isResizing: true,
-                              boxId: box.id,
+                              boxId: ann.id,
                               handleIndex: idx,
                               originalBox: { ...origBox },
                               startX: coords.x,
@@ -924,33 +832,79 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
                   </>
                 )}
 
-                {/* Label for sections */}
-                {box.type === 'section' && box.data.label && (
-                  <text
-                    x={x + 5}
-                    y={y + 20}
-                    fontSize={12 * (page.width / 512)}
-                    fill={color}
-                    pointerEvents="none"
-                  >
-                    {box.data.label}
-                  </text>
-                )}
+                {/* Caption label — small translucent pill above box, falls inside if no room */}
+                {(() => {
+                  const labelText = `${ann.captionName} ${ann.captionNumber}`;
+                  const fontSize = 5 * (page.width / 512);
+                  const padX = 2 * (page.width / 512);
+                  const padY = 1 * (page.width / 512);
+                  const charW = fontSize * 0.6;
+                  const labelW = labelText.length * charW + padX * 2;
+                  const labelH = fontSize + padY * 2;
+                  const aboveY = y - labelH - 2 * (page.height / 512);
+                  const placeAbove = aboveY > 0;
+                  const lx = x;
+                  const ly = placeAbove ? aboveY : y + 2 * (page.height / 512);
+                  return (
+                    <g pointerEvents="none" opacity={0.7}>
+                      <rect
+                        x={lx}
+                        y={ly}
+                        width={labelW}
+                        height={labelH}
+                        rx={2 * (page.width / 512)}
+                        ry={2 * (page.width / 512)}
+                        fill={color}
+                        fillOpacity={0.6}
+                      />
+                      <text
+                        x={lx + padX}
+                        y={ly + padY + fontSize * 0.85}
+                        fontSize={fontSize}
+                        fill="white"
+                        fontWeight={600}
+                      >
+                        {labelText}
+                      </text>
+                    </g>
+                  );
+                })()}
               </g>
             );
           })}
 
-          {/* Drawing preview - rectangle from start point to cursor */}
+          {/* Drawing preview */}
           {drawing.isDrawing && (() => {
-            const color = currentTool === 'section' ? '#4338ca'
-              : currentTool === 'pair' ? '#5a7a3a' : '#b91c1c';
+            // Predict the colour of the new annotation using the same depth->caption
+            // mapping the server uses (PickDefaultCaption: depth 0/1/2/≥3 -> caption #1/#2/#3/#4 by createdAt).
+            const previewBox = {
+              x: Math.min(drawing.startX, drawing.currentX),
+              y: Math.min(drawing.startY, drawing.currentY),
+              width: Math.abs(drawing.currentX - drawing.startX),
+              height: Math.abs(drawing.currentY - drawing.startY),
+            };
+            const parent = findDeepestContainer(annotations, previewBox);
+            let depth = 0;
+            let cur: string | null = parent?.id ?? null;
+            const byId = new Map(annotations.map(a => [a.id, a]));
+            while (cur) {
+              depth++;
+              cur = byId.get(cur)?.parentId ?? null;
+              if (depth > 64) break;
+            }
+            const orderedCaptions = (captions ?? []).slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+            const previewCaption = orderedCaptions[depth];
+            const color = previewCaption
+              ? captionColor(previewCaption.name)
+              : captionColor(`Annotation lvl ${depth + 1}`);
             return (
               <rect
                 x={Math.min(drawing.startX, drawing.currentX)}
                 y={Math.min(drawing.startY, drawing.currentY)}
                 width={Math.abs(drawing.currentX - drawing.startX)}
                 height={Math.abs(drawing.currentY - drawing.startY)}
-                fill={`${color}22`}
+                fill={color}
+                fillOpacity={0.13}
                 stroke={color}
                 strokeWidth={2}
                 strokeDasharray="4,4"
@@ -965,4 +919,5 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
   );
 };
 
+export { findDeepestContainer, isDescendantOf };
 export default AnnotationCanvas;

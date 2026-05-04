@@ -71,4 +71,6 @@ public class Document
     /// Gets or sets the collection of shares for this document.
     /// </summary>
     public ICollection<DocumentShare> Shares { get; set; } = [];
+
+    public ICollection<Caption> Captions { get; set; } = [];
 }

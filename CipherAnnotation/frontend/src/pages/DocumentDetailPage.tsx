@@ -15,10 +15,11 @@ import {
   Grid3x3,
   List,
   SquareDashed,
+  HelpCircle,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { Document, ExportFormat, Page } from '@/types';
-import { documentService, exportService, pageService } from '@/services';
+import { Caption, CocoVariant, Document, ExportFormat, Page, TfRecordVariant, YoloVariant } from '@/types';
+import { captionService, documentService, exportService, pageService } from '@/services';
 import { LoadingSpinner, Modal, ConfirmDialog } from '@/components/shared';
 import PageThumbnail from '@/components/documents/PageThumbnail';
 import { ShareDocumentModal } from '@/components/documents/ShareDocumentModal';
@@ -51,9 +52,48 @@ export const DocumentDetailPage: React.FC = () => {
     visibility: 'Private' as 'Private' | 'Public',
   });
   const [isAddPagesOpen, setIsAddPagesOpen] = useState(false);
+  const [isExportOpen, setIsExportOpen] = useState(false);
   const [exportFormat, setExportFormat] = useState<ExportFormat>('COCO');
+  const [cocoVariant, setCocoVariant] = useState<CocoVariant>('BBOX');
+  const [yoloVariant, setYoloVariant] = useState<YoloVariant>('DETECTION');
+  const [tfVariant, setTfVariant] = useState<TfRecordVariant>('DETECTION');
   const [trainTestSplit, setTrainTestSplit] = useState(80);
   const [isExporting, setIsExporting] = useState(false);
+  const [captions, setCaptions] = useState<Caption[]>([]);
+  const [selectedCaptionIds, setSelectedCaptionIds] = useState<Set<string>>(new Set());
+  const [isLoadingCaptions, setIsLoadingCaptions] = useState(false);
+  const [exportFilename, setExportFilename] = useState('');
+  const [filenameTouched, setFilenameTouched] = useState(false);
+  const [showVariantHelp, setShowVariantHelp] = useState(false);
+
+  const sanitizeFilename = (s: string) => s.replace(/[^a-z0-9_-]+/gi, '_');
+  const buildDefaultFilename = (title: string | undefined, format: ExportFormat) => {
+    const safe = sanitizeFilename(title ?? 'dataset');
+    return `${safe}_${format.toLowerCase()}_export`;
+  };
+
+  const formatVariantOptions: Record<ExportFormat, { value: string; label: string }[]> = {
+    COCO: [
+      { value: 'BBOX', label: 'Bounding Box' },
+      { value: 'SEGMENTATION', label: 'Segmentation' },
+    ],
+    YOLO: [
+      { value: 'DETECTION', label: 'Detection' },
+      { value: 'SEGMENTATION', label: 'Segmentation' },
+    ],
+    TFRECORD: [
+      { value: 'DETECTION', label: 'Detection' },
+      { value: 'CLASSIFICATION', label: 'Classification' },
+    ],
+  };
+
+  const currentVariant =
+    exportFormat === 'COCO' ? cocoVariant : exportFormat === 'YOLO' ? yoloVariant : tfVariant;
+  const setCurrentVariant = (v: string) => {
+    if (exportFormat === 'COCO') setCocoVariant(v as CocoVariant);
+    else if (exportFormat === 'YOLO') setYoloVariant(v as YoloVariant);
+    else setTfVariant(v as TfRecordVariant);
+  };
 
   const [showProcessed, setShowProcessed] = useState(true);
   const [showAnnotations, setShowAnnotations] = useState(true);
@@ -71,6 +111,44 @@ export const DocumentDetailPage: React.FC = () => {
       openEditModal();
     }
   }, [isEditRoute, document]);
+
+  // Initialize filename when export modal opens
+  useEffect(() => {
+    if (isExportOpen) {
+      setExportFilename(buildDefaultFilename(document?.title, exportFormat));
+      setFilenameTouched(false);
+    }
+  }, [isExportOpen]);
+
+  // Update default filename when format changes (unless user edited it)
+  useEffect(() => {
+    if (isExportOpen && !filenameTouched) {
+      setExportFilename(buildDefaultFilename(document?.title, exportFormat));
+    }
+  }, [exportFormat]);
+
+  // Fetch captions when export modal opens
+  useEffect(() => {
+    if (!isExportOpen || !documentId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        setIsLoadingCaptions(true);
+        const data = await captionService.list(documentId);
+        if (cancelled) return;
+        setCaptions(data);
+        setSelectedCaptionIds(new Set(data.map((c) => c.id)));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to load captions';
+        toast.error(message);
+      } finally {
+        if (!cancelled) setIsLoadingCaptions(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isExportOpen, documentId]);
 
   const fetchDocument = async () => {
     if (!documentId) return;
@@ -162,10 +240,18 @@ export const DocumentDetailPage: React.FC = () => {
     try {
       setIsExporting(true);
 
+      if (captions.length > 0 && selectedCaptionIds.size === 0) {
+        toast.error('Select at least one caption to export');
+        setIsExporting(false);
+        return;
+      }
+
       const request = {
         documentIds: [documentId],
         format: exportFormat,
         trainTestSplit: trainTestSplit / 100, // UI uses 0–100, backend expects 0–1
+        variant: currentVariant,
+        captionIds: Array.from(selectedCaptionIds),
       };
 
       let blob: Blob;
@@ -187,13 +273,13 @@ export const DocumentDetailPage: React.FC = () => {
           throw new Error(`Unsupported format: ${exportFormat}`);
       }
 
-      const safeTitle = (document?.title ?? 'dataset').replace(/[^a-z0-9_-]+/gi, '_');
-      exportService.downloadBlob(
-        blob,
-        `${safeTitle}-${exportFormat}-${Date.now()}.${extension}`
-      );
+      const baseName =
+        sanitizeFilename(exportFilename.trim()) ||
+        buildDefaultFilename(document?.title, exportFormat);
+      exportService.downloadBlob(blob, `${baseName}.${extension}`);
 
       toast.success('Dataset exported successfully');
+      setIsExportOpen(false);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Export failed';
       toast.error(message);
@@ -265,6 +351,15 @@ export const DocumentDetailPage: React.FC = () => {
                 <Share2 className="w-4 h-4" />
                 Share
               </button>
+              {pages.length > 0 && (
+                <button
+                  onClick={() => setIsExportOpen(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-transparent border-2 border-ink-900/20 hover:border-ink-900/60 text-ink-900 rounded-md transition-colors font-semibold"
+                >
+                  <Download className="w-4 h-4" />
+                  Export
+                </button>
+              )}
               <button
                 onClick={openEditModal}
                 className="flex items-center gap-2 px-4 py-2 bg-transparent border-2 border-ink-900/20 hover:border-ink-900/60 text-ink-900 rounded-md transition-colors font-semibold"
@@ -445,57 +540,199 @@ export const DocumentDetailPage: React.FC = () => {
         )}
       </div>
 
-      {/* Export Section */}
-      {pages.length > 0 && (
-        <div className="bg-parchment-50/80 backdrop-blur-sm border border-sepia-600/20 rounded-lg shadow-sm p-7">
-          <h2 className="font-serif text-3xl font-semibold text-ink-900 mb-5 flex items-center gap-3">
-            <Download className="w-6 h-6 text-sepia-700" />
-            Export Dataset
-          </h2>
+      {/* Export Dataset Modal */}
+      <Modal
+        isOpen={isExportOpen}
+        onClose={() => !isExporting && setIsExportOpen(false)}
+        title="Export Dataset"
+        size="md"
+      >
+        <div className="space-y-6">
+          <div>
+            <label className="block text-xs font-semibold tracking-wider uppercase text-sepia-700 mb-2">
+              Export Format
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              {(['COCO', 'YOLO', 'TFRECORD'] as ExportFormat[]).map((format) => (
+                <button
+                  key={format}
+                  onClick={() => setExportFormat(format)}
+                  className={`px-4 py-2 rounded-md font-semibold text-sm transition-colors border ${
+                    exportFormat === format
+                      ? 'bg-ink-900 text-parchment-50 border-ink-900'
+                      : 'bg-transparent text-ink-900 border-sepia-600/30 hover:border-ink-900/60'
+                  }`}
+                >
+                  {format === 'TFRECORD' ? 'TFRecord' : format}
+                </button>
+              ))}
+            </div>
+          </div>
 
-          <div className="space-y-6">
-            {/* Format Selection */}
-            <div>
-              <label className="block text-xs font-semibold tracking-wider uppercase text-sepia-700 mb-2">
-                Export Format
+          <div>
+            <div className="flex items-center gap-2 mb-2 relative">
+              <label className="block text-xs font-semibold tracking-wider uppercase text-sepia-700">
+                {exportFormat === 'TFRECORD' ? 'TFRecord' : exportFormat} Variant
               </label>
-              <div className="grid grid-cols-3 gap-2">
-                {(['COCO', 'YOLO', 'TFRECORD'] as ExportFormat[]).map((format) => (
+              <button
+                type="button"
+                onClick={() => setShowVariantHelp((v) => !v)}
+                onBlur={() => setShowVariantHelp(false)}
+                aria-label="What do these variants mean?"
+                className="text-ink-900/50 hover:text-ink-900 transition-colors"
+              >
+                <HelpCircle className="w-4 h-4" />
+              </button>
+              {showVariantHelp && (
+                <div
+                  className="absolute left-0 top-6 z-20 w-80 p-3 bg-parchment-50 border border-sepia-600/40 rounded-md shadow-lg shadow-ink-900/20 text-xs text-ink-900 leading-relaxed"
+                  onMouseDown={(e) => e.preventDefault()}
+                >
+                  <p className="font-semibold mb-1">Bounding Box / Detection</p>
+                  <p className="mb-2 text-ink-900/80">
+                    Stores each annotation as a rectangle (x, y, width, height). Smaller, faster, used for object detection models.
+                  </p>
+                  <p className="font-semibold mb-1">Segmentation</p>
+                  <p className="mb-2 text-ink-900/80">
+                    Stores the exact polygon outline of each annotation. Larger, more precise, used for instance-segmentation models. Requires polygon annotations.
+                  </p>
+                  <p className="font-semibold mb-1">Classification (TFRecord)</p>
+                  <p className="text-ink-900/80">
+                    Drops location data and stores only the class label per image — for image classification models.
+                  </p>
+                </div>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {formatVariantOptions[exportFormat].map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => setCurrentVariant(opt.value)}
+                  className={`px-4 py-2 rounded-md font-semibold text-sm transition-colors border ${
+                    currentVariant === opt.value
+                      ? 'bg-ink-900 text-parchment-50 border-ink-900'
+                      : 'bg-transparent text-ink-900 border-sepia-600/30 hover:border-ink-900/60'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-xs font-semibold tracking-wider uppercase text-sepia-700">
+                Captions to Include
+              </label>
+              {captions.length > 0 && (
+                <div className="flex gap-3 text-xs">
                   <button
-                    key={format}
-                    onClick={() => setExportFormat(format)}
-                    className={`px-4 py-2 rounded-md font-semibold text-sm transition-colors border ${
-                      exportFormat === format
-                        ? 'bg-ink-900 text-parchment-50 border-ink-900'
-                        : 'bg-transparent text-ink-900 border-sepia-600/30 hover:border-ink-900/60'
-                    }`}
+                    type="button"
+                    onClick={() => setSelectedCaptionIds(new Set(captions.map((c) => c.id)))}
+                    className="text-ink-900/70 hover:text-ink-900 font-semibold uppercase tracking-wider"
                   >
-                    {format === 'TFRECORD' ? 'TFRecord' : format}
+                    All
                   </button>
-                ))}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCaptionIds(new Set())}
+                    className="text-ink-900/70 hover:text-ink-900 font-semibold uppercase tracking-wider"
+                  >
+                    None
+                  </button>
+                </div>
+              )}
+            </div>
+            {isLoadingCaptions ? (
+              <p className="text-sm text-ink-900/60 italic">Loading captions...</p>
+            ) : captions.length === 0 ? (
+              <p className="text-sm text-ink-900/60 italic">No captions found for this document.</p>
+            ) : (
+              <div className="max-h-48 overflow-y-auto border border-sepia-600/30 rounded-md divide-y divide-sepia-600/20">
+                {captions.map((c) => {
+                  const checked = selectedCaptionIds.has(c.id);
+                  return (
+                    <label
+                      key={c.id}
+                      className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-parchment-100 transition-colors"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => {
+                          setSelectedCaptionIds((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(c.id)) next.delete(c.id);
+                            else next.add(c.id);
+                            return next;
+                          });
+                        }}
+                        className="w-4 h-4 accent-ink-900"
+                      />
+                      <span className="flex-1 text-sm text-ink-900 font-medium">{c.name}</span>
+                      <span className="text-xs text-ink-900/50 font-mono">{c.usageCount}</span>
+                    </label>
+                  );
+                })}
               </div>
-            </div>
+            )}
+          </div>
 
-            {/* Train/Test Split */}
-            <div>
-              <label className="block text-xs font-semibold tracking-wider uppercase text-sepia-700 mb-2">
-                Train/Test Split: <span className="font-mono normal-case tracking-normal text-ink-900">{trainTestSplit}% / {100 - trainTestSplit}%</span>
-              </label>
+          <div>
+            <label className="block text-xs font-semibold tracking-wider uppercase text-sepia-700 mb-2">
+              Train/Test Split: <span className="font-mono normal-case tracking-normal text-ink-900">{trainTestSplit}% / {100 - trainTestSplit}%</span>
+            </label>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={trainTestSplit}
+              onChange={(e) => setTrainTestSplit(Number(e.target.value))}
+              className="w-full h-2 bg-parchment-200 rounded-lg appearance-none cursor-pointer accent-ink-900"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold tracking-wider uppercase text-sepia-700 mb-2">
+              File Name
+            </label>
+            <div className="flex items-stretch">
               <input
-                type="range"
-                min="0"
-                max="100"
-                value={trainTestSplit}
-                onChange={(e) => setTrainTestSplit(Number(e.target.value))}
-                className="w-full h-2 bg-parchment-200 rounded-lg appearance-none cursor-pointer accent-ink-900"
+                type="text"
+                value={exportFilename}
+                onChange={(e) => {
+                  setExportFilename(e.target.value);
+                  setFilenameTouched(true);
+                }}
+                placeholder={buildDefaultFilename(document?.title, exportFormat)}
+                className="flex-1 px-3 py-2.5 bg-parchment-50 border border-sepia-600/30 text-ink-900 placeholder-sepia-600/50 rounded-l-md focus:outline-none focus:border-ink-900 focus:ring-1 focus:ring-ink-900 transition-colors font-mono text-sm"
               />
+              <span className="inline-flex items-center px-3 bg-parchment-200 border border-l-0 border-sepia-600/30 rounded-r-md text-ink-900/60 font-mono text-sm">
+                .{exportFormat === 'COCO' ? 'json' : 'zip'}
+              </span>
             </div>
+            <p className="text-xs text-ink-900/50 mt-1">
+              Allowed: letters, numbers, _ and -. Other characters will be replaced.
+            </p>
+          </div>
 
-            {/* Export Button */}
+          <div className="flex justify-end gap-3 pt-4 border-t border-sepia-600/20">
+            <button
+              onClick={() => setIsExportOpen(false)}
+              disabled={isExporting}
+              className="px-4 py-2 text-ink-900 bg-transparent border-2 border-ink-900/20 hover:border-ink-900/60 rounded-md transition-colors font-semibold disabled:opacity-50"
+            >
+              Cancel
+            </button>
             <button
               onClick={handleExport}
-              disabled={isExporting}
-              className="w-full px-4 py-3 bg-ink-900 hover:bg-primary-700 text-parchment-50 rounded-md transition-colors font-semibold shadow-sm disabled:opacity-50 flex items-center justify-center gap-2"
+              disabled={
+                isExporting ||
+                isLoadingCaptions ||
+                (captions.length > 0 && selectedCaptionIds.size === 0)
+              }
+              className="px-4 py-2 bg-ink-900 hover:bg-primary-700 text-parchment-50 rounded-md transition-colors font-semibold shadow-sm disabled:opacity-50 flex items-center gap-2"
             >
               {isExporting ? (
                 <>
@@ -511,7 +748,7 @@ export const DocumentDetailPage: React.FC = () => {
             </button>
           </div>
         </div>
-      )}
+      </Modal>
 
       {/* Add Pages Modal */}
       <AddPagesModal

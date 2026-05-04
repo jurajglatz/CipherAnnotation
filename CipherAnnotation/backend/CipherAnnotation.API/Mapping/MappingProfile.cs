@@ -1,10 +1,10 @@
 using AutoMapper;
 using CipherAnnotation.Core.DTOs.Annotation;
 using CipherAnnotation.Core.DTOs.Auth;
+using CipherAnnotation.Core.DTOs.Caption;
 using CipherAnnotation.Core.DTOs.Document;
 using CipherAnnotation.Core.DTOs.Export;
 using CipherAnnotation.Core.DTOs.Page;
-using CipherAnnotation.Core.DTOs.Symbol;
 using CipherAnnotation.Core.Entities;
 using CipherAnnotation.Core.Enums;
 
@@ -31,9 +31,6 @@ public class MappingProfile : Profile
 
         // Annotation mappings
         MapAnnotationDtos();
-
-        // Symbol mappings
-        MapSymbolDtos();
 
         // Export mappings
         MapExportDtos();
@@ -144,119 +141,25 @@ public class MappingProfile : Profile
     /// </summary>
     private void MapAnnotationDtos()
     {
-        // BoundingBox to BoundingBoxDto
-        CreateMap<BoundingBox, BoundingBoxDto>()
-            .ForMember(dest => dest.X, opt => opt.MapFrom(src => src.X))
-            .ForMember(dest => dest.Y, opt => opt.MapFrom(src => src.Y))
-            .ForMember(dest => dest.Width, opt => opt.MapFrom(src => src.Width))
-            .ForMember(dest => dest.Height, opt => opt.MapFrom(src => src.Height));
-
-        // BoundingBoxDto to BoundingBox
+        // BoundingBox <-> BoundingBoxDto.
+        CreateMap<BoundingBox, BoundingBoxDto>();
         CreateMap<BoundingBoxDto, BoundingBox>()
-            .ForMember(dest => dest.X, opt => opt.MapFrom(src => src.X))
-            .ForMember(dest => dest.Y, opt => opt.MapFrom(src => src.Y))
-            .ForMember(dest => dest.Width, opt => opt.MapFrom(src => src.Width))
-            .ForMember(dest => dest.Height, opt => opt.MapFrom(src => src.Height))
             .ForMember(dest => dest.Id, opt => opt.Ignore())
-            .ForMember(dest => dest.SectionId, opt => opt.Ignore())
-            .ForMember(dest => dest.PairId, opt => opt.Ignore())
-            .ForMember(dest => dest.ElementId, opt => opt.Ignore())
-            .ForMember(dest => dest.Section, opt => opt.Ignore())
-            .ForMember(dest => dest.Pair, opt => opt.Ignore())
-            .ForMember(dest => dest.Element, opt => opt.Ignore());
+            .ForMember(dest => dest.AnnotationId, opt => opt.Ignore())
+            .ForMember(dest => dest.Annotation, opt => opt.Ignore());
 
-        // SectionAnnotation to SectionAnnotationDto
-        CreateMap<SectionAnnotation, SectionAnnotationDto>()
-            .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src.Id))
-            .ForMember(dest => dest.PageId, opt => opt.MapFrom(src => src.PageId))
-            .ForMember(dest => dest.Label, opt => opt.MapFrom(src => src.Label))
-            .ForMember(dest => dest.Orientation, opt => opt.MapFrom(src => src.Orientation))
-            .ForMember(dest => dest.BoundingBox, opt => opt.MapFrom(src => src.BoundingBox))
-            .ForMember(dest => dest.CreatedAt, opt => opt.MapFrom(src => src.CreatedAt))
-            .ForMember(dest => dest.PairAnnotations, opt => opt.MapFrom(src => src.PairAnnotations));
-
-        // CreateSectionRequest to SectionAnnotation
-        CreateMap<CreateSectionRequest, SectionAnnotation>()
-            .ForMember(dest => dest.Label, opt => opt.MapFrom(src => src.Label))
-            .ForMember(dest => dest.Orientation, opt => opt.MapFrom(src => src.Orientation))
-            .ForMember(dest => dest.BoundingBox, opt => opt.MapFrom(src => src.BoundingBox))
-            .ForMember(dest => dest.Id, opt => opt.Ignore())
-            .ForMember(dest => dest.PageId, opt => opt.Ignore())
-            .ForMember(dest => dest.CreatedAt, opt => opt.Ignore())
-            .ForMember(dest => dest.Page, opt => opt.Ignore())
-            .ForMember(dest => dest.PairAnnotations, opt => opt.Ignore());
-
-        // PairAnnotation to PairAnnotationDto
-        CreateMap<PairAnnotation, PairAnnotationDto>()
-            .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src.Id))
-            .ForMember(dest => dest.SectionId, opt => opt.MapFrom(src => src.SectionId))
-            .ForMember(dest => dest.Order, opt => opt.MapFrom(src => src.Order))
-            .ForMember(dest => dest.Orientation, opt => opt.MapFrom(src => src.Orientation))
-            .ForMember(dest => dest.BoundingBox, opt => opt.MapFrom(src => src.BoundingBox))
-            .ForMember(dest => dest.CreatedAt, opt => opt.MapFrom(src => src.CreatedAt))
-            .ForMember(dest => dest.ElementAnnotations, opt => opt.MapFrom(src => src.ElementAnnotations));
-
-        // CreatePairRequest to PairAnnotation
-        CreateMap<CreatePairRequest, PairAnnotation>()
-            .ForMember(dest => dest.Order, opt => opt.MapFrom(src => src.Order))
-            .ForMember(dest => dest.Orientation, opt => opt.MapFrom(src => src.Orientation))
-            .ForMember(dest => dest.BoundingBox, opt => opt.MapFrom(src => src.BoundingBox))
-            .ForMember(dest => dest.Id, opt => opt.Ignore())
-            .ForMember(dest => dest.SectionId, opt => opt.Ignore())
-            .ForMember(dest => dest.CreatedAt, opt => opt.Ignore())
-            .ForMember(dest => dest.Section, opt => opt.Ignore())
-            .ForMember(dest => dest.ElementAnnotations, opt => opt.Ignore());
-
-        // ElementAnnotation to ElementAnnotationDto
-        CreateMap<ElementAnnotation, ElementAnnotationDto>()
-            .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src.Id))
-            .ForMember(dest => dest.PairId, opt => opt.MapFrom(src => src.PairId))
-            .ForMember(dest => dest.SymbolId, opt => opt.MapFrom(src => src.SymbolId))
+        // Annotation -> AnnotationDto.
+        // CaptionName, CaptionNumber are populated by the controller (not via AutoMapper)
+        // because they require cross-row context (creation-order sort + grouping).
+        CreateMap<Annotation, AnnotationDto>()
             .ForMember(dest => dest.Type, opt => opt.MapFrom(src => src.Type.ToString()))
-            .ForMember(dest => dest.Content, opt => opt.MapFrom(src => src.Content))
-            .ForMember(dest => dest.Transcription, opt => opt.MapFrom(src => src.Transcription))
-            .ForMember(dest => dest.Orientation, opt => opt.MapFrom(src => src.Orientation))
             .ForMember(dest => dest.BoundingBox, opt => opt.MapFrom(src => src.BoundingBox))
-            .ForMember(dest => dest.SymbolCode, opt => opt.MapFrom(src => src.Symbol!.Code))
-            .ForMember(dest => dest.CreatedAt, opt => opt.MapFrom(src => src.CreatedAt));
+            .ForMember(dest => dest.CaptionName, opt => opt.Ignore())
+            .ForMember(dest => dest.CaptionNumber, opt => opt.Ignore());
 
-        // CreateElementRequest to ElementAnnotation
-        CreateMap<CreateElementRequest, ElementAnnotation>()
-            .ForMember(dest => dest.SymbolId, opt => opt.MapFrom(src => src.SymbolId))
-            .ForMember(dest => dest.Type, opt => opt.MapFrom(src =>
-                Enum.Parse<ElementType>(src.Type)))
-            .ForMember(dest => dest.Content, opt => opt.MapFrom(src => src.Content))
-            .ForMember(dest => dest.Transcription, opt => opt.MapFrom(src => src.Transcription))
-            .ForMember(dest => dest.Orientation, opt => opt.MapFrom(src => src.Orientation))
-            .ForMember(dest => dest.BoundingBox, opt => opt.MapFrom(src => src.BoundingBox))
-            .ForMember(dest => dest.Id, opt => opt.Ignore())
-            .ForMember(dest => dest.PairId, opt => opt.Ignore())
-            .ForMember(dest => dest.CreatedAt, opt => opt.Ignore())
-            .ForMember(dest => dest.Pair, opt => opt.Ignore())
-            .ForMember(dest => dest.Symbol, opt => opt.Ignore());
-    }
-
-    /// <summary>
-    /// Configures symbol-related mappings.
-    /// </summary>
-    private void MapSymbolDtos()
-    {
-        // Symbol to SymbolDto
-        CreateMap<Symbol, SymbolDto>()
-            .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src.Id))
-            .ForMember(dest => dest.Code, opt => opt.MapFrom(src => src.Code))
-            .ForMember(dest => dest.PreviewImageUrl, opt => opt.MapFrom(src =>
-                src.PreviewImageBlobId.HasValue ? $"/api/symbols/{src.Id}/image" : null))
-            .ForMember(dest => dest.CreatedAt, opt => opt.MapFrom(src => src.CreatedAt));
-
-        // CreateSymbolRequest to Symbol
-        CreateMap<CreateSymbolRequest, Symbol>()
-            .ForMember(dest => dest.Code, opt => opt.MapFrom(src => src.Code))
-            .ForMember(dest => dest.Id, opt => opt.Ignore())
-            .ForMember(dest => dest.PreviewImageBlobId, opt => opt.Ignore())
-            .ForMember(dest => dest.PreviewImageBlob, opt => opt.Ignore())
-            .ForMember(dest => dest.CreatedAt, opt => opt.Ignore())
-            .ForMember(dest => dest.Elements, opt => opt.Ignore());
+        // Caption -> CaptionDto. UsageCount is populated by the controller.
+        CreateMap<Caption, CaptionDto>()
+            .ForMember(dest => dest.UsageCount, opt => opt.Ignore());
     }
 
     /// <summary>

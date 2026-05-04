@@ -13,4 +13,7 @@
     <ProjectReference Include="..\CipherAnnotation.Core\CipherAnnotation.Core.csproj" />
     <ProjectReference Include="..\CipherAnnotation.Infrastructure\CipherAnnotation.Infrastructure.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="CipherAnnotation.Tests" />
+  </ItemGroup>
 </Project>

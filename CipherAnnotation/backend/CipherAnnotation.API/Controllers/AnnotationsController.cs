@@ -2,937 +2,412 @@ using AutoMapper;
 using CipherAnnotation.Core.DTOs.Annotation;
 using CipherAnnotation.Core.Entities;
 using CipherAnnotation.Core.Enums;
-using CipherAnnotation.Core.Interfaces;
 using CipherAnnotation.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 
 namespace CipherAnnotation.API.Controllers;
 
-/// <summary>
-/// API controller for annotation management (sections, pairs, and elements).
-/// </summary>
 [ApiController]
-[Route("api/pages/{pageId:guid}/annotations")]
 [Authorize]
 public class AnnotationsController : ControllerBase
 {
-    private readonly IDocumentRepository _documentRepository;
+    private readonly AppDbContext _db;
     private readonly IMapper _mapper;
-    private readonly ILogger<AnnotationsController> _logger;
-    private readonly AppDbContext _dbContext;
 
-    /// <summary>
-    /// Initializes a new instance of the AnnotationsController.
-    /// </summary>
-    public AnnotationsController(
-        IDocumentRepository documentRepository,
-        IMapper mapper,
-        ILogger<AnnotationsController> logger,
-        AppDbContext dbContext)
+    public AnnotationsController(AppDbContext db, IMapper mapper)
     {
-        _documentRepository = documentRepository ?? throw new ArgumentNullException(nameof(documentRepository));
-        _mapper = mapper ?? throw new ArgumentNullException(nameof(mapper));
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
+        _db = db;
+        _mapper = mapper;
     }
 
-    #region Section Annotations
-
-    /// <summary>
-    /// Gets all section annotations for a page with nested pairs and elements.
-    /// </summary>
-    /// <param name="pageId">The page ID.</param>
-    /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>A collection of section annotations with nested data.</returns>
-    /// <response code="200">Section annotations retrieved successfully.</response>
-    /// <response code="401">User is not authenticated.</response>
-    /// <response code="403">User does not have access to this page.</response>
-    /// <response code="404">Page not found.</response>
-    /// <response code="500">An internal server error occurred.</response>
-    [HttpGet]
-    [ProducesResponseType(typeof(IEnumerable<SectionAnnotationDto>), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<IEnumerable<SectionAnnotationDto>>> GetSectionAnnotationsAsync(
-        Guid pageId,
-        CancellationToken cancellationToken = default)
+    [HttpGet("api/pages/{pageId:guid}/annotations")]
+    public async Task<ActionResult<IEnumerable<AnnotationDto>>> List(Guid pageId)
     {
-        try
+        if (!await UserCanAccessPage(pageId)) return Forbid();
+
+        var anns = await _db.Annotations
+            .Where(a => a.PageId == pageId)
+            .Include(a => a.BoundingBox)
+            .Include(a => a.Caption)
+            .ToListAsync();
+
+        var numbers = ComputeCaptionNumbers(anns);
+
+        return Ok(anns.Select(a =>
         {
-            var page = await GetAndValidatePageAccessAsync(pageId, cancellationToken);
-            if (page == null)
-                return NotFound(new { message = "Page not found." });
-
-            var sections = page.SectionAnnotations
-                .OrderBy(s => s.CreatedAt)
-                .Select(MapSectionToDto)
-                .ToList();
-
-            return Ok(sections);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "An error occurred while retrieving section annotations for page {PageId}.", pageId);
-            return StatusCode(StatusCodes.Status500InternalServerError,
-                new { message = "An error occurred while retrieving section annotations." });
-        }
-    }
-
-    /// <summary>
-    /// Creates a new section annotation with a bounding box.
-    /// </summary>
-    /// <param name="pageId">The page ID.</param>
-    /// <param name="request">The section creation request.</param>
-    /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>The created section annotation.</returns>
-    /// <response code="201">Section annotation created successfully.</response>
-    /// <response code="400">Invalid request.</response>
-    /// <response code="401">User is not authenticated.</response>
-    /// <response code="403">User does not have access to this page.</response>
-    /// <response code="404">Page not found.</response>
-    /// <response code="500">An internal server error occurred.</response>
-    [HttpPost("sections")]
-    [ProducesResponseType(typeof(SectionAnnotationDto), StatusCodes.Status201Created)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<SectionAnnotationDto>> CreateSectionAsync(
-        Guid pageId,
-        [FromBody] CreateSectionRequest request,
-        CancellationToken cancellationToken = default)
-    {
-        try
-        {
-            if (!ModelState.IsValid)
-                return BadRequest(ModelState);
-
-            var page = await GetAndValidatePageAccessAsync(pageId, cancellationToken);
-            if (page == null)
-                return NotFound(new { message = "Page not found." });
-
-            var boundingBox = new BoundingBox
+            var dto = _mapper.Map<AnnotationDto>(a);
+            return dto with
             {
-                X = request.BoundingBox.X,
-                Y = request.BoundingBox.Y,
-                Width = request.BoundingBox.Width,
-                Height = request.BoundingBox.Height
+                CaptionName = a.Caption!.Name,
+                CaptionNumber = numbers[a.Id],
             };
-
-            var section = new SectionAnnotation
-            {
-                PageId = pageId,
-                Label = request.Label,
-                Orientation = request.Orientation,
-                BoundingBox = boundingBox,
-                CreatedAt = DateTime.UtcNow
-            };
-
-            page.SectionAnnotations.Add(section);
-            await _dbContext.SaveChangesAsync(cancellationToken);
-
-            _logger.LogInformation("Section annotation {SectionId} created for page {PageId}.", section.Id, pageId);
-
-            var sectionDto = MapSectionToDto(section);
-            return StatusCode(StatusCodes.Status201Created, sectionDto);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "An error occurred while creating section annotation for page {PageId}.", pageId);
-            return StatusCode(StatusCodes.Status500InternalServerError,
-                new { message = "An error occurred while creating the section annotation.", detail = ex.ToString() });
-        }
+        }));
     }
 
-    /// <summary>
-    /// Updates a section annotation.
-    /// </summary>
-    /// <param name="pageId">The page ID.</param>
-    /// <param name="sectionId">The section annotation ID.</param>
-    /// <param name="request">The update request.</param>
-    /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>The updated section annotation.</returns>
-    /// <response code="200">Section annotation updated successfully.</response>
-    /// <response code="400">Invalid request.</response>
-    /// <response code="401">User is not authenticated.</response>
-    /// <response code="403">User does not have access to this page.</response>
-    /// <response code="404">Page or section not found.</response>
-    /// <response code="500">An internal server error occurred.</response>
-    [HttpPut("sections/{sectionId:guid}")]
-    [ProducesResponseType(typeof(SectionAnnotationDto), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<SectionAnnotationDto>> UpdateSectionAsync(
-        Guid pageId,
-        Guid sectionId,
-        [FromBody] UpdateAnnotationRequest request,
-        CancellationToken cancellationToken = default)
+    [HttpPost("api/pages/{pageId:guid}/annotations")]
+    public async Task<ActionResult<AnnotationDto>> Create(Guid pageId, CreateAnnotationRequest req)
     {
-        try
+        if (!await UserCanAccessPage(pageId)) return Forbid();
+
+        if (!Enum.TryParse<AnnotationType>(req.Type, ignoreCase: false, out var type))
+            return BadRequest(new { message = $"Invalid type \"{req.Type}\"." });
+
+        if (!ValidateTypeFields(type, req.Transcription, req.TranscriptionRefId, out var typeError))
+            return BadRequest(new { message = typeError });
+
+        var page = await _db.Pages.FirstOrDefaultAsync(p => p.Id == pageId);
+        if (page is null) return NotFound();
+
+        if (req.ParentId is { } parentId)
         {
-            if (!ModelState.IsValid)
-                return BadRequest(ModelState);
-
-            var page = await GetAndValidatePageAccessAsync(pageId, cancellationToken);
-            if (page == null)
-                return NotFound(new { message = "Page not found." });
-
-            var section = page.SectionAnnotations.FirstOrDefault(s => s.Id == sectionId);
-            if (section == null)
-            {
-                _logger.LogWarning("Section {SectionId} not found on page {PageId}.", sectionId, pageId);
-                return NotFound(new { message = "Section not found." });
-            }
-
-            if (!string.IsNullOrEmpty(request.Label))
-                section.Label = request.Label;
-            if (request.Orientation.HasValue)
-                section.Orientation = request.Orientation.Value;
-            if (request.BoundingBox != null && section.BoundingBox != null)
-            {
-                section.BoundingBox.X = request.BoundingBox.X;
-                section.BoundingBox.Y = request.BoundingBox.Y;
-                section.BoundingBox.Width = request.BoundingBox.Width;
-                section.BoundingBox.Height = request.BoundingBox.Height;
-            }
-
-            await _dbContext.SaveChangesAsync(cancellationToken);
-
-            _logger.LogInformation("Section annotation {SectionId} updated.", sectionId);
-
-            var sectionDto = MapSectionToDto(section);
-            return Ok(sectionDto);
+            var parentPageId = await _db.Annotations
+                .Where(a => a.Id == parentId)
+                .Select(a => (Guid?)a.PageId)
+                .FirstOrDefaultAsync();
+            if (parentPageId is null || parentPageId != pageId)
+                return BadRequest(new { message = "Parent annotation must be on the same page." });
         }
-        catch (Exception ex)
+
+        if (type == AnnotationType.Symbol && req.TranscriptionRefId is { } refId)
         {
-            _logger.LogError(ex, "An error occurred while updating section annotation {SectionId}.", sectionId);
-            return StatusCode(StatusCodes.Status500InternalServerError,
-                new { message = "An error occurred while updating the section annotation." });
+            var ok = await _db.Annotations.AnyAsync(a =>
+                a.Id == refId &&
+                a.Type == AnnotationType.Text &&
+                a.Page!.DocumentId == page.DocumentId);
+            if (!ok)
+                return BadRequest(new { message = "transcriptionRefId must point to a Text annotation in the same document." });
         }
+
+        var depth = await ComputeDepth(req.ParentId);
+        var documentCaptions = await _db.Captions
+            .Where(c => c.DocumentId == page.DocumentId)
+            .ToListAsync();
+
+        Caption? caption;
+        if (req.CaptionId is { } cid)
+        {
+            caption = documentCaptions.FirstOrDefault(c => c.Id == cid);
+            if (caption is null) return BadRequest(new { message = "captionId is not a caption of this document." });
+        }
+        else
+        {
+            caption = PickDefaultCaption(documentCaptions, depth);
+            if (caption is null)
+            {
+                var levelN = depth + 1;
+                while (documentCaptions.Any(c => c.Name == $"Annotation lvl {levelN}")) levelN++;
+                caption = new Caption { DocumentId = page.DocumentId, Name = $"Annotation lvl {levelN}" };
+                _db.Captions.Add(caption);
+                await _db.SaveChangesAsync();
+            }
+        }
+
+        var ann = new Annotation
+        {
+            PageId = pageId,
+            ParentId = req.ParentId,
+            CaptionId = caption.Id,
+            Type = type,
+            Content = req.Content,
+            Transcription = type == AnnotationType.Cipher ? req.Transcription : null,
+            TranscriptionRefId = type == AnnotationType.Symbol ? req.TranscriptionRefId : null,
+            Orientation = req.Orientation,
+            BoundingBox = new BoundingBox
+            {
+                X = req.BoundingBox.X,
+                Y = req.BoundingBox.Y,
+                Width = req.BoundingBox.Width,
+                Height = req.BoundingBox.Height,
+            },
+        };
+        _db.Annotations.Add(ann);
+        await _db.SaveChangesAsync();
+
+        await _db.Entry(ann).Reference(a => a.Caption).LoadAsync();
+        await _db.Entry(ann).Reference(a => a.BoundingBox).LoadAsync();
+
+        var pageAnns = await _db.Annotations.Where(a => a.PageId == pageId).ToListAsync();
+        var numbers = ComputeCaptionNumbers(pageAnns);
+
+        var dto = _mapper.Map<AnnotationDto>(ann) with
+        {
+            CaptionName = ann.Caption!.Name,
+            CaptionNumber = numbers[ann.Id],
+        };
+        return CreatedAtAction(nameof(List), new { pageId }, dto);
     }
 
-    /// <summary>
-    /// Deletes a section annotation and all nested pairs and elements.
-    /// </summary>
-    /// <param name="pageId">The page ID.</param>
-    /// <param name="sectionId">The section annotation ID.</param>
-    /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>No content on success.</returns>
-    /// <response code="204">Section annotation deleted successfully.</response>
-    /// <response code="401">User is not authenticated.</response>
-    /// <response code="403">User does not have access to this page.</response>
-    /// <response code="404">Page or section not found.</response>
-    /// <response code="500">An internal server error occurred.</response>
-    [HttpDelete("sections/{sectionId:guid}")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
-    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> DeleteSectionAsync(
-        Guid pageId,
-        Guid sectionId,
-        CancellationToken cancellationToken = default)
+    [HttpPut("api/pages/{pageId:guid}/annotations/{id:guid}")]
+    public async Task<ActionResult<AnnotationDto>> Update(Guid pageId, Guid id, UpdateAnnotationRequest req)
     {
-        try
+        if (!await UserCanAccessPage(pageId)) return Forbid();
+
+        var ann = await _db.Annotations
+            .Include(a => a.BoundingBox)
+            .FirstOrDefaultAsync(a => a.Id == id && a.PageId == pageId);
+        if (ann is null) return NotFound();
+
+        var page = await _db.Pages.FirstAsync(p => p.Id == pageId);
+
+        if (req.ParentId.HasValue)
         {
-            var page = await GetAndValidatePageAccessAsync(pageId, cancellationToken);
-            if (page == null)
-                return NotFound(new { message = "Page not found." });
-
-            var section = page.SectionAnnotations.FirstOrDefault(s => s.Id == sectionId);
-            if (section == null)
+            var newParentId = req.ParentId.Value;
+            if (newParentId == id)
+                return BadRequest(new { message = "An annotation cannot be its own parent." });
+            if (newParentId != Guid.Empty)
             {
-                _logger.LogWarning("Section {SectionId} not found on page {PageId}.", sectionId, pageId);
-                return NotFound(new { message = "Section not found." });
-            }
-
-            page.SectionAnnotations.Remove(section);
-            await _dbContext.SaveChangesAsync(cancellationToken);
-
-            _logger.LogInformation("Section annotation {SectionId} deleted.", sectionId);
-
-            return NoContent();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "An error occurred while deleting section annotation {SectionId}.", sectionId);
-            return StatusCode(StatusCodes.Status500InternalServerError,
-                new { message = "An error occurred while deleting the section annotation." });
-        }
-    }
-
-    #endregion
-
-    #region Pair Annotations
-
-    /// <summary>
-    /// Creates a new pair annotation within a section.
-    /// </summary>
-    /// <param name="pageId">The page ID.</param>
-    /// <param name="sectionId">The section annotation ID.</param>
-    /// <param name="request">The pair creation request.</param>
-    /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>The created pair annotation.</returns>
-    /// <response code="201">Pair annotation created successfully.</response>
-    /// <response code="400">Invalid request.</response>
-    /// <response code="401">User is not authenticated.</response>
-    /// <response code="403">User does not have access to this page.</response>
-    /// <response code="404">Page or section not found.</response>
-    /// <response code="500">An internal server error occurred.</response>
-    [HttpPost("sections/{sectionId:guid}/pairs")]
-    [ProducesResponseType(typeof(PairAnnotationDto), StatusCodes.Status201Created)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<PairAnnotationDto>> CreatePairAsync(
-        Guid pageId,
-        Guid sectionId,
-        [FromBody] CreatePairRequest request,
-        CancellationToken cancellationToken = default)
-    {
-        try
-        {
-            if (!ModelState.IsValid)
-                return BadRequest(ModelState);
-
-            var page = await GetAndValidatePageAccessAsync(pageId, cancellationToken);
-            if (page == null)
-                return NotFound(new { message = "Page not found." });
-
-            var section = page.SectionAnnotations.FirstOrDefault(s => s.Id == sectionId);
-            if (section == null)
-                return NotFound(new { message = "Section not found." });
-
-            var boundingBox = new BoundingBox
-            {
-                X = request.BoundingBox.X,
-                Y = request.BoundingBox.Y,
-                Width = request.BoundingBox.Width,
-                Height = request.BoundingBox.Height
-            };
-
-            var pair = new PairAnnotation
-            {
-                SectionId = sectionId,
-                Order = request.Order,
-                Orientation = request.Orientation,
-                BoundingBox = boundingBox,
-                CreatedAt = DateTime.UtcNow
-            };
-
-            section.PairAnnotations.Add(pair);
-            await _dbContext.SaveChangesAsync(cancellationToken);
-
-            _logger.LogInformation("Pair annotation {PairId} created in section {SectionId}.", pair.Id, sectionId);
-
-            var pairDto = MapPairToDto(pair);
-            return StatusCode(StatusCodes.Status201Created, pairDto);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "An error occurred while creating pair annotation in section {SectionId}.", sectionId);
-            return StatusCode(StatusCodes.Status500InternalServerError,
-                new { message = "An error occurred while creating the pair annotation.", detail = ex.ToString() });
-        }
-    }
-
-    /// <summary>
-    /// Updates a pair annotation.
-    /// </summary>
-    /// <param name="pageId">The page ID.</param>
-    /// <param name="pairId">The pair annotation ID.</param>
-    /// <param name="request">The update request.</param>
-    /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>The updated pair annotation.</returns>
-    /// <response code="200">Pair annotation updated successfully.</response>
-    /// <response code="400">Invalid request.</response>
-    /// <response code="401">User is not authenticated.</response>
-    /// <response code="403">User does not have access to this page.</response>
-    /// <response code="404">Page or pair not found.</response>
-    /// <response code="500">An internal server error occurred.</response>
-    [HttpPut("pairs/{pairId:guid}")]
-    [ProducesResponseType(typeof(PairAnnotationDto), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<PairAnnotationDto>> UpdatePairAsync(
-        Guid pageId,
-        Guid pairId,
-        [FromBody] UpdateAnnotationRequest request,
-        CancellationToken cancellationToken = default)
-    {
-        try
-        {
-            if (!ModelState.IsValid)
-                return BadRequest(ModelState);
-
-            var page = await GetAndValidatePageAccessAsync(pageId, cancellationToken);
-            if (page == null)
-                return NotFound(new { message = "Page not found." });
-
-            var pair = page.SectionAnnotations
-                .SelectMany(s => s.PairAnnotations)
-                .FirstOrDefault(p => p.Id == pairId);
-            if (pair == null)
-            {
-                _logger.LogWarning("Pair {PairId} not found on page {PageId}.", pairId, pageId);
-                return NotFound(new { message = "Pair not found." });
-            }
-
-            if (request.Order.HasValue)
-                pair.Order = request.Order.Value;
-            if (request.Orientation.HasValue)
-                pair.Orientation = request.Orientation.Value;
-            if (request.BoundingBox != null && pair.BoundingBox != null)
-            {
-                pair.BoundingBox.X = request.BoundingBox.X;
-                pair.BoundingBox.Y = request.BoundingBox.Y;
-                pair.BoundingBox.Width = request.BoundingBox.Width;
-                pair.BoundingBox.Height = request.BoundingBox.Height;
-            }
-            if (request.SectionId.HasValue && request.SectionId.Value != pair.SectionId)
-            {
-                var targetSection = page.SectionAnnotations
-                    .FirstOrDefault(s => s.Id == request.SectionId.Value);
-                if (targetSection == null)
-                    return BadRequest(new { message = "Target section not found on this page." });
-                pair.SectionId = targetSection.Id;
-                pair.Section = targetSection;
-            }
-
-            await _dbContext.SaveChangesAsync(cancellationToken);
-
-            _logger.LogInformation("Pair annotation {PairId} updated.", pairId);
-
-            var pairDto = MapPairToDto(pair);
-            return Ok(pairDto);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "An error occurred while updating pair annotation {PairId}.", pairId);
-            return StatusCode(StatusCodes.Status500InternalServerError,
-                new { message = "An error occurred while updating the pair annotation." });
-        }
-    }
-
-    /// <summary>
-    /// Deletes a pair annotation and all nested elements.
-    /// </summary>
-    /// <param name="pageId">The page ID.</param>
-    /// <param name="pairId">The pair annotation ID.</param>
-    /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>No content on success.</returns>
-    /// <response code="204">Pair annotation deleted successfully.</response>
-    /// <response code="401">User is not authenticated.</response>
-    /// <response code="403">User does not have access to this page.</response>
-    /// <response code="404">Page or pair not found.</response>
-    /// <response code="500">An internal server error occurred.</response>
-    [HttpDelete("pairs/{pairId:guid}")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
-    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> DeletePairAsync(
-        Guid pageId,
-        Guid pairId,
-        CancellationToken cancellationToken = default)
-    {
-        try
-        {
-            var page = await GetAndValidatePageAccessAsync(pageId, cancellationToken);
-            if (page == null)
-                return NotFound(new { message = "Page not found." });
-
-            var pair = page.SectionAnnotations
-                .SelectMany(s => s.PairAnnotations)
-                .FirstOrDefault(p => p.Id == pairId);
-            if (pair == null)
-            {
-                _logger.LogWarning("Pair {PairId} not found on page {PageId}.", pairId, pageId);
-                return NotFound(new { message = "Pair not found." });
-            }
-
-            var section = page.SectionAnnotations.First(s => s.PairAnnotations.Contains(pair));
-            section.PairAnnotations.Remove(pair);
-            await _dbContext.SaveChangesAsync(cancellationToken);
-
-            _logger.LogInformation("Pair annotation {PairId} deleted.", pairId);
-
-            return NoContent();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "An error occurred while deleting pair annotation {PairId}.", pairId);
-            return StatusCode(StatusCodes.Status500InternalServerError,
-                new { message = "An error occurred while deleting the pair annotation." });
-        }
-    }
-
-    #endregion
-
-    #region Element Annotations
-
-    /// <summary>
-    /// Creates a new element annotation within a pair.
-    /// </summary>
-    /// <param name="pageId">The page ID.</param>
-    /// <param name="pairId">The pair annotation ID.</param>
-    /// <param name="request">The element creation request.</param>
-    /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>The created element annotation.</returns>
-    /// <response code="201">Element annotation created successfully.</response>
-    /// <response code="400">Invalid request.</response>
-    /// <response code="401">User is not authenticated.</response>
-    /// <response code="403">User does not have access to this page.</response>
-    /// <response code="404">Page or pair not found.</response>
-    /// <response code="500">An internal server error occurred.</response>
-    [HttpPost("pairs/{pairId:guid}/elements")]
-    [ProducesResponseType(typeof(ElementAnnotationDto), StatusCodes.Status201Created)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<ElementAnnotationDto>> CreateElementAsync(
-        Guid pageId,
-        Guid pairId,
-        [FromBody] CreateElementRequest request,
-        CancellationToken cancellationToken = default)
-    {
-        try
-        {
-            if (!ModelState.IsValid)
-                return BadRequest(ModelState);
-
-            var page = await GetAndValidatePageAccessAsync(pageId, cancellationToken);
-            if (page == null)
-                return NotFound(new { message = "Page not found." });
-
-            var pair = page.SectionAnnotations
-                .SelectMany(s => s.PairAnnotations)
-                .FirstOrDefault(p => p.Id == pairId);
-            if (pair == null)
-                return NotFound(new { message = "Pair not found." });
-
-            var elementType = Enum.TryParse<ElementType>(request.Type, out var type)
-                ? type
-                : ElementType.Plaintext;
-
-            var boundingBox = new BoundingBox
-            {
-                X = request.BoundingBox.X,
-                Y = request.BoundingBox.Y,
-                Width = request.BoundingBox.Width,
-                Height = request.BoundingBox.Height
-            };
-
-            var element = new ElementAnnotation
-            {
-                PairId = pairId,
-                SymbolId = request.SymbolId,
-                Type = elementType,
-                Content = request.Content,
-                Transcription = request.Transcription,
-                Orientation = request.Orientation,
-                BoundingBox = boundingBox,
-                CreatedAt = DateTime.UtcNow
-            };
-
-            pair.ElementAnnotations.Add(element);
-            await _dbContext.SaveChangesAsync(cancellationToken);
-
-            _logger.LogInformation("Element annotation {ElementId} created in pair {PairId}.", element.Id, pairId);
-
-            var elementDto = MapElementToDto(element);
-            return StatusCode(StatusCodes.Status201Created, elementDto);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "An error occurred while creating element annotation in pair {PairId}.", pairId);
-            return StatusCode(StatusCodes.Status500InternalServerError,
-                new { message = "An error occurred while creating the element annotation.", detail = ex.ToString() });
-        }
-    }
-
-    /// <summary>
-    /// Updates an element annotation.
-    /// </summary>
-    /// <param name="pageId">The page ID.</param>
-    /// <param name="elementId">The element annotation ID.</param>
-    /// <param name="request">The update request.</param>
-    /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>The updated element annotation.</returns>
-    /// <response code="200">Element annotation updated successfully.</response>
-    /// <response code="400">Invalid request.</response>
-    /// <response code="401">User is not authenticated.</response>
-    /// <response code="403">User does not have access to this page.</response>
-    /// <response code="404">Page or element not found.</response>
-    /// <response code="500">An internal server error occurred.</response>
-    [HttpPut("elements/{elementId:guid}")]
-    [ProducesResponseType(typeof(ElementAnnotationDto), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<ElementAnnotationDto>> UpdateElementAsync(
-        Guid pageId,
-        Guid elementId,
-        [FromBody] UpdateAnnotationRequest request,
-        CancellationToken cancellationToken = default)
-    {
-        try
-        {
-            if (!ModelState.IsValid)
-                return BadRequest(ModelState);
-
-            var page = await GetAndValidatePageAccessAsync(pageId, cancellationToken);
-            if (page == null)
-                return NotFound(new { message = "Page not found." });
-
-            var element = page.SectionAnnotations
-                .SelectMany(s => s.PairAnnotations)
-                .SelectMany(p => p.ElementAnnotations)
-                .FirstOrDefault(e => e.Id == elementId);
-            if (element == null)
-            {
-                _logger.LogWarning("Element {ElementId} not found on page {PageId}.", elementId, pageId);
-                return NotFound(new { message = "Element not found." });
-            }
-
-            if (request.Type != null && Enum.TryParse<ElementType>(request.Type, out var parsedType))
-            {
-                element.Type = parsedType;
-                if (parsedType == ElementType.Plaintext)
-                    element.SymbolId = null;
-            }
-            if (request.Content != null)
-                element.Content = request.Content;
-            if (request.Transcription != null)
-                element.Transcription = request.Transcription;
-            if (request.Orientation.HasValue)
-                element.Orientation = request.Orientation.Value;
-            if (request.SymbolId.HasValue)
-                element.SymbolId = request.SymbolId;
-            if (request.BoundingBox != null && element.BoundingBox != null)
-            {
-                element.BoundingBox.X = request.BoundingBox.X;
-                element.BoundingBox.Y = request.BoundingBox.Y;
-                element.BoundingBox.Width = request.BoundingBox.Width;
-                element.BoundingBox.Height = request.BoundingBox.Height;
-            }
-            if (request.PairId.HasValue && request.PairId.Value != element.PairId)
-            {
-                var targetPair = page.SectionAnnotations
-                    .SelectMany(s => s.PairAnnotations)
-                    .FirstOrDefault(p => p.Id == request.PairId.Value);
-                if (targetPair == null)
-                    return BadRequest(new { message = "Target pair not found on this page." });
-                element.PairId = targetPair.Id;
-                element.Pair = targetPair;
-            }
-
-            await _dbContext.SaveChangesAsync(cancellationToken);
-
-            _logger.LogInformation("Element annotation {ElementId} updated.", elementId);
-
-            var elementDto = MapElementToDto(element);
-            return Ok(elementDto);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "An error occurred while updating element annotation {ElementId}.", elementId);
-            return StatusCode(StatusCodes.Status500InternalServerError,
-                new { message = "An error occurred while updating the element annotation." });
-        }
-    }
-
-    /// <summary>
-    /// Deletes an element annotation.
-    /// </summary>
-    /// <param name="pageId">The page ID.</param>
-    /// <param name="elementId">The element annotation ID.</param>
-    /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>No content on success.</returns>
-    /// <response code="204">Element annotation deleted successfully.</response>
-    /// <response code="401">User is not authenticated.</response>
-    /// <response code="403">User does not have access to this page.</response>
-    /// <response code="404">Page or element not found.</response>
-    /// <response code="500">An internal server error occurred.</response>
-    [HttpDelete("elements/{elementId:guid}")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
-    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> DeleteElementAsync(
-        Guid pageId,
-        Guid elementId,
-        CancellationToken cancellationToken = default)
-    {
-        try
-        {
-            var page = await GetAndValidatePageAccessAsync(pageId, cancellationToken);
-            if (page == null)
-                return NotFound(new { message = "Page not found." });
-
-            var element = page.SectionAnnotations
-                .SelectMany(s => s.PairAnnotations)
-                .SelectMany(p => p.ElementAnnotations)
-                .FirstOrDefault(e => e.Id == elementId);
-            if (element == null)
-            {
-                _logger.LogWarning("Element {ElementId} not found on page {PageId}.", elementId, pageId);
-                return NotFound(new { message = "Element not found." });
-            }
-
-            var pair = page.SectionAnnotations
-                .SelectMany(s => s.PairAnnotations)
-                .First(p => p.ElementAnnotations.Contains(element));
-            pair.ElementAnnotations.Remove(element);
-            await _dbContext.SaveChangesAsync(cancellationToken);
-
-            _logger.LogInformation("Element annotation {ElementId} deleted.", elementId);
-
-            return NoContent();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "An error occurred while deleting element annotation {ElementId}.", elementId);
-            return StatusCode(StatusCodes.Status500InternalServerError,
-                new { message = "An error occurred while deleting the element annotation." });
-        }
-    }
-
-    #endregion
-
-    #region Bounding Box
-
-    /// <summary>
-    /// Updates a bounding box position and size directly.
-    /// </summary>
-    /// <param name="pageId">The page ID.</param>
-    /// <param name="boxId">The bounding box ID.</param>
-    /// <param name="request">The bounding box update request.</param>
-    /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>The updated bounding box.</returns>
-    /// <response code="200">Bounding box updated successfully.</response>
-    /// <response code="400">Invalid request.</response>
-    /// <response code="401">User is not authenticated.</response>
-    /// <response code="403">User does not have access to this page.</response>
-    /// <response code="404">Page or bounding box not found.</response>
-    /// <response code="500">An internal server error occurred.</response>
-    [HttpPut("boundingboxes/{boxId:guid}")]
-    [ProducesResponseType(typeof(BoundingBoxDto), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<BoundingBoxDto>> UpdateBoundingBoxAsync(
-        Guid pageId,
-        Guid boxId,
-        [FromBody] BoundingBoxDto request,
-        CancellationToken cancellationToken = default)
-    {
-        try
-        {
-            if (!ModelState.IsValid)
-                return BadRequest(ModelState);
-
-            var page = await GetAndValidatePageAccessAsync(pageId, cancellationToken);
-            if (page == null)
-                return NotFound(new { message = "Page not found." });
-
-            // Find bounding box by annotation ID (section, pair, or element)
-            BoundingBox? boundingBox = null;
-
-            var section = page.SectionAnnotations.FirstOrDefault(s => s.Id == boxId);
-            if (section != null)
-            {
-                boundingBox = section.BoundingBox;
+                var sameSide = await _db.Annotations.AnyAsync(a => a.Id == newParentId && a.PageId == pageId);
+                if (!sameSide) return BadRequest(new { message = "Parent must be on the same page." });
+                if (await IsDescendant(newParentId, id))
+                    return BadRequest(new { message = "Reparenting would create a cycle." });
+                ann.ParentId = newParentId;
             }
             else
             {
-                var pair = page.SectionAnnotations
-                    .SelectMany(s => s.PairAnnotations)
-                    .FirstOrDefault(p => p.Id == boxId);
-                if (pair != null)
+                ann.ParentId = null;
+            }
+        }
+
+        if (req.CaptionId is { } cid)
+        {
+            var ok = await _db.Captions.AnyAsync(c => c.Id == cid && c.DocumentId == page.DocumentId);
+            if (!ok) return BadRequest(new { message = "captionId is not a caption of this document." });
+            ann.CaptionId = cid;
+        }
+
+        var newType = ann.Type;
+        if (req.Type is not null)
+        {
+            if (!Enum.TryParse<AnnotationType>(req.Type, out newType))
+                return BadRequest(new { message = $"Invalid type \"{req.Type}\"." });
+
+            if (ann.Type == AnnotationType.Text && newType == AnnotationType.Symbol)
+            {
+                var refCount = await _db.Annotations.CountAsync(a => a.TranscriptionRefId == ann.Id);
+                if (refCount > 0)
+                    return Conflict(new { message = $"Cannot change to Symbol while {refCount} annotation(s) reference this as their plaintext." });
+            }
+            ann.Type = newType;
+        }
+
+        if (req.Content is not null) ann.Content = req.Content;
+
+        if (req.Type is not null)
+        {
+            ann.Transcription = newType == AnnotationType.Cipher ? req.Transcription ?? ann.Transcription : null;
+            ann.TranscriptionRefId = newType == AnnotationType.Symbol ? req.TranscriptionRefId ?? ann.TranscriptionRefId : null;
+        }
+        else
+        {
+            if (ann.Type == AnnotationType.Cipher && req.Transcription is not null) ann.Transcription = req.Transcription;
+            if (ann.Type == AnnotationType.Symbol && req.TranscriptionRefId.HasValue)
+            {
+                var refId = req.TranscriptionRefId.Value;
+                if (refId == Guid.Empty)
                 {
-                    boundingBox = pair.BoundingBox;
+                    ann.TranscriptionRefId = null;
                 }
                 else
                 {
-                    var element = page.SectionAnnotations
-                        .SelectMany(s => s.PairAnnotations)
-                        .SelectMany(p => p.ElementAnnotations)
-                        .FirstOrDefault(e => e.Id == boxId);
-                    if (element != null)
-                    {
-                        boundingBox = element.BoundingBox;
-                    }
+                    var ok = await _db.Annotations.AnyAsync(a =>
+                        a.Id == refId &&
+                        a.Type == AnnotationType.Text &&
+                        a.Page!.DocumentId == page.DocumentId);
+                    if (!ok) return BadRequest(new { message = "transcriptionRefId must point to a Text annotation in the same document." });
+                    ann.TranscriptionRefId = refId;
                 }
             }
+        }
 
-            if (boundingBox == null)
+        if (!ValidateTypeFields(ann.Type, ann.Transcription, ann.TranscriptionRefId, out var typeError))
+            return BadRequest(new { message = typeError });
+
+        if (req.Orientation.HasValue) ann.Orientation = req.Orientation.Value;
+
+        if (req.BoundingBox is { } bb && ann.BoundingBox is not null)
+        {
+            ann.BoundingBox.X = bb.X;
+            ann.BoundingBox.Y = bb.Y;
+            ann.BoundingBox.Width = bb.Width;
+            ann.BoundingBox.Height = bb.Height;
+        }
+
+        await _db.SaveChangesAsync();
+        await _db.Entry(ann).Reference(a => a.Caption).LoadAsync();
+
+        var pageAnns = await _db.Annotations.Where(a => a.PageId == pageId).ToListAsync();
+        var numbers = ComputeCaptionNumbers(pageAnns);
+
+        return Ok(_mapper.Map<AnnotationDto>(ann) with
+        {
+            CaptionName = ann.Caption!.Name,
+            CaptionNumber = numbers[ann.Id],
+        });
+    }
+
+    [HttpDelete("api/pages/{pageId:guid}/annotations/{id:guid}")]
+    public async Task<IActionResult> Delete(Guid pageId, Guid id)
+    {
+        if (!await UserCanAccessPage(pageId)) return Forbid();
+
+        var ann = await _db.Annotations.FirstOrDefaultAsync(a => a.Id == id && a.PageId == pageId);
+        if (ann is null) return NotFound();
+
+        _db.Annotations.Remove(ann);
+        await _db.SaveChangesAsync();
+        return NoContent();
+    }
+
+    [HttpPut("api/pages/{pageId:guid}/annotations/boundingboxes/{id:guid}")]
+    public async Task<ActionResult<BoundingBoxDto>> UpdateBoundingBox(Guid pageId, Guid id, BoundingBoxDto req)
+    {
+        if (!await UserCanAccessPage(pageId)) return Forbid();
+
+        var ann = await _db.Annotations
+            .Include(a => a.BoundingBox)
+            .FirstOrDefaultAsync(a => a.Id == id && a.PageId == pageId);
+        if (ann is null || ann.BoundingBox is null) return NotFound();
+
+        ann.BoundingBox.X = req.X;
+        ann.BoundingBox.Y = req.Y;
+        ann.BoundingBox.Width = req.Width;
+        ann.BoundingBox.Height = req.Height;
+        await _db.SaveChangesAsync();
+
+        return Ok(_mapper.Map<BoundingBoxDto>(ann.BoundingBox));
+    }
+
+    [HttpGet("api/documents/{documentId:guid}/annotations")]
+    public async Task<ActionResult<IEnumerable<object>>> ListForDocument(
+        Guid documentId,
+        [FromQuery] string? type,
+        [FromQuery] Guid? currentPageId)
+    {
+        if (!await UserCanAccessDocument(documentId)) return Forbid();
+
+        var query = _db.Annotations
+            .Where(a => a.Page!.DocumentId == documentId);
+
+        if (!string.IsNullOrEmpty(type))
+        {
+            if (!Enum.TryParse<AnnotationType>(type, out var t))
+                return BadRequest(new { message = $"Invalid type \"{type}\"." });
+            query = query.Where(a => a.Type == t);
+        }
+
+        var rows = await query
+            .Include(a => a.Caption)
+            .Include(a => a.Page)
+            .Select(a => new
             {
-                _logger.LogWarning("Bounding box {BoxId} not found on page {PageId}.", boxId, pageId);
-                return NotFound(new { message = "Bounding box not found." });
-            }
+                a.Id,
+                a.PageId,
+                PageNumber = a.Page!.PageNumber,
+                a.Content,
+                CaptionLabel = a.Caption!.Name,
+            })
+            .ToListAsync();
 
-            boundingBox.X = request.X;
-            boundingBox.Y = request.Y;
-            boundingBox.Width = request.Width;
-            boundingBox.Height = request.Height;
+        if (currentPageId is { } cpid)
+            rows = rows.OrderByDescending(r => r.PageId == cpid).ThenBy(r => r.PageNumber).ToList();
 
-            await _dbContext.SaveChangesAsync(cancellationToken);
+        return Ok(rows);
+    }
 
-            _logger.LogInformation("Bounding box {BoxId} updated.", boxId);
+    // ---------- helpers ----------
 
-            var boxDto = new BoundingBoxDto
-            {
-                X = boundingBox.X,
-                Y = boundingBox.Y,
-                Width = boundingBox.Width,
-                Height = boundingBox.Height
-            };
-            return Ok(boxDto);
+    internal static Dictionary<Guid, int> ComputeCaptionNumbers(IEnumerable<Annotation> annotations)
+    {
+        var result = new Dictionary<Guid, int>();
+        var groups = annotations.GroupBy(a => new { a.PageId, a.CaptionId });
+        foreach (var g in groups)
+        {
+            var ordered = g.OrderBy(a => a.CreatedAt).ThenBy(a => a.Id).ToList();
+            for (var i = 0; i < ordered.Count; i++)
+                result[ordered[i].Id] = i + 1;
         }
-        catch (Exception ex)
+        return result;
+    }
+
+    internal static Caption? PickDefaultCaption(IReadOnlyList<Caption> documentCaptions, int depth)
+    {
+        // Each depth gets its own caption (depth 0 -> #1, depth 1 -> #2, ...).
+        // Returns null when no caption exists at that depth yet — the caller
+        // then auto-creates an "Annotation lvl N" caption.
+        var ordered = documentCaptions.OrderBy(c => c.CreatedAt).ThenBy(c => c.Id).ToList();
+        if (depth < 0) depth = 0;
+        return depth < ordered.Count ? ordered[depth] : null;
+    }
+
+    private async Task<int> ComputeDepth(Guid? parentId)
+    {
+        var depth = 0;
+        var current = parentId;
+        while (current is { } id)
         {
-            _logger.LogError(ex, "An error occurred while updating bounding box {BoxId}.", boxId);
-            return StatusCode(StatusCodes.Status500InternalServerError,
-                new { message = "An error occurred while updating the bounding box." });
+            depth++;
+            current = await _db.Annotations
+                .Where(a => a.Id == id)
+                .Select(a => a.ParentId)
+                .FirstOrDefaultAsync();
+            if (depth > 64) break;
         }
+        return depth;
     }
 
-    #endregion
-
-    // Helper methods
-
-    private async Task<Page?> GetAndValidatePageAccessAsync(Guid pageId, CancellationToken cancellationToken)
+    private async Task<bool> IsDescendant(Guid candidateAncestorId, Guid possibleDescendantId)
     {
-        var userId = GetCurrentUserId();
-        var page = await _dbContext.Pages
-            .Include(p => p.Document)
-                .ThenInclude(d => d.Shares)
-            .Include(p => p.SectionAnnotations)
-                .ThenInclude(s => s.BoundingBox)
-            .Include(p => p.SectionAnnotations)
-                .ThenInclude(s => s.PairAnnotations)
-                    .ThenInclude(p => p.BoundingBox)
-            .Include(p => p.SectionAnnotations)
-                .ThenInclude(s => s.PairAnnotations)
-                    .ThenInclude(p => p.ElementAnnotations)
-                        .ThenInclude(e => e.BoundingBox)
-            .FirstOrDefaultAsync(p => p.Id == pageId, cancellationToken);
-
-        if (page == null)
-            return null;
-
-        if (!CanAccessDocument(page.Document!, userId))
+        var current = (Guid?)candidateAncestorId;
+        var hops = 0;
+        while (current is { } id)
         {
-            _logger.LogWarning("User {UserId} attempted to access page {PageId} without permission.", userId, pageId);
-            return null;
+            if (id == possibleDescendantId) return true;
+            current = await _db.Annotations
+                .Where(a => a.Id == id)
+                .Select(a => a.ParentId)
+                .FirstOrDefaultAsync();
+            if (++hops > 64) return true;
         }
-
-        return page;
+        return false;
     }
 
-    private Guid GetCurrentUserId()
+    private static bool ValidateTypeFields(AnnotationType type, string? transcription, Guid? transcriptionRefId, out string error)
     {
-        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        return Guid.TryParse(userIdClaim, out var userId) ? userId : Guid.Empty;
-    }
-
-    private bool CanAccessDocument(Document document, Guid userId)
-    {
-        return document.OwnerId == userId ||
-               document.Visibility == Visibility.Public ||
-               document.Shares.Any(s => s.UserId == userId);
-    }
-
-    private SectionAnnotationDto MapSectionToDto(SectionAnnotation section)
-    {
-        return new SectionAnnotationDto
+        error = "";
+        return type switch
         {
-            Id = section.Id,
-            PageId = section.PageId,
-            Label = section.Label,
-            Orientation = section.Orientation,
-            BoundingBox = section.BoundingBox != null
-                ? new BoundingBoxDto
-                {
-                    X = section.BoundingBox.X,
-                    Y = section.BoundingBox.Y,
-                    Width = section.BoundingBox.Width,
-                    Height = section.BoundingBox.Height
-                }
-                : new BoundingBoxDto { X = 0, Y = 0, Width = 0, Height = 0 },
-            CreatedAt = section.CreatedAt,
-            PairAnnotations = section.PairAnnotations.Select(MapPairToDto).ToList()
+            AnnotationType.Text   when transcription is null && transcriptionRefId is null => true,
+            AnnotationType.Cipher when transcriptionRefId is null => true,
+            AnnotationType.Symbol when transcription is null => true,
+            AnnotationType.Text   => SetError(out error, "Text type cannot carry transcription/transcriptionRefId."),
+            AnnotationType.Cipher => SetError(out error, "Cipher type cannot carry transcriptionRefId."),
+            AnnotationType.Symbol => SetError(out error, "Symbol type cannot carry transcription text."),
+            _ => SetError(out error, "Unknown type."),
         };
+
+        static bool SetError(out string e, string m) { e = m; return false; }
     }
 
-    private PairAnnotationDto MapPairToDto(PairAnnotation pair)
+    private async Task<bool> UserCanAccessPage(Guid pageId)
     {
-        return new PairAnnotationDto
-        {
-            Id = pair.Id,
-            SectionId = pair.SectionId,
-            Order = pair.Order,
-            Orientation = pair.Orientation,
-            BoundingBox = pair.BoundingBox != null
-                ? new BoundingBoxDto
-                {
-                    X = pair.BoundingBox.X,
-                    Y = pair.BoundingBox.Y,
-                    Width = pair.BoundingBox.Width,
-                    Height = pair.BoundingBox.Height
-                }
-                : new BoundingBoxDto { X = 0, Y = 0, Width = 0, Height = 0 },
-            CreatedAt = pair.CreatedAt,
-            ElementAnnotations = pair.ElementAnnotations.Select(MapElementToDto).ToList()
-        };
+        var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        return await _db.Pages.AnyAsync(p =>
+            p.Id == pageId &&
+            (p.Document!.OwnerId == userId
+             || p.Document.Visibility == Visibility.Public
+             || p.Document.Shares.Any(s => s.UserId == userId)));
     }
 
-    private ElementAnnotationDto MapElementToDto(ElementAnnotation element)
+    private async Task<bool> UserCanAccessDocument(Guid documentId)
     {
-        return new ElementAnnotationDto
-        {
-            Id = element.Id,
-            PairId = element.PairId,
-            SymbolId = element.SymbolId,
-            Type = element.Type.ToString(),
-            Content = element.Content,
-            Transcription = element.Transcription,
-            Orientation = element.Orientation,
-            BoundingBox = element.BoundingBox != null
-                ? new BoundingBoxDto
-                {
-                    X = element.BoundingBox.X,
-                    Y = element.BoundingBox.Y,
-                    Width = element.BoundingBox.Width,
-                    Height = element.BoundingBox.Height
-                }
-                : new BoundingBoxDto { X = 0, Y = 0, Width = 0, Height = 0 },
-            SymbolCode = element.Symbol?.Code,
-            CreatedAt = element.CreatedAt
-        };
+        var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        return await _db.Documents.AnyAsync(d =>
+            d.Id == documentId &&
+            (d.OwnerId == userId
+             || d.Visibility == Visibility.Public
+             || d.Shares.Any(s => s.UserId == userId)));
     }
 }
