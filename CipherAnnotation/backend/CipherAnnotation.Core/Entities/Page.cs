@@ -39,7 +39,7 @@ public class Page
 
     public FileBlob? ProcessedImageBlob { get; set; }
 
-    public ICollection<SectionAnnotation> SectionAnnotations { get; set; } = [];
+    public ICollection<Annotation> Annotations { get; set; } = [];
 
     public ICollection<PreprocessHistoryEntry> PreprocessHistory { get; set; } = [];
 }

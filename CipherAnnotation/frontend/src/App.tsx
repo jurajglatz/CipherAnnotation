@@ -16,7 +16,6 @@ import NotFoundPage from '@/pages/NotFoundPage';
 import DocumentsPage from '@/pages/DocumentsPage';
 import DocumentDetailPage from '@/pages/DocumentDetailPage';
 import PublicDocumentsPage from '@/pages/PublicDocumentsPage';
-import SymbolsPage from '@/pages/SymbolsPage';
 import ProfilePage from '@/pages/ProfilePage';
 import AnnotationPage from '@/pages/AnnotationPage';
 
@@ -78,15 +77,6 @@ function App() {
             element={
               <ProtectedRoute>
                 <AnnotationPage />
-              </ProtectedRoute>
-            }
-          />
-
-          <Route
-            path="/symbols"
-            element={
-              <ProtectedRoute>
-                <SymbolsPage />
               </ProtectedRoute>
             }
           />

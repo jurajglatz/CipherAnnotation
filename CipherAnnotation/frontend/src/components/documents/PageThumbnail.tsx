@@ -4,9 +4,10 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Page, SectionAnnotation } from '@/types';
+import { Page, Annotation } from '@/types';
 import api from '@/services/api';
 import annotationService from '@/services/annotationService';
+import { captionColor } from '@/components/annotation/utils/captionColor';
 import { CheckCircle, Clock, AlertCircle } from 'lucide-react';
 
 interface PageThumbnailProps {
@@ -31,7 +32,7 @@ export const PageThumbnail: React.FC<PageThumbnailProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
   const [imageBlobUrl, setImageBlobUrl] = useState<string | null>(null);
-  const [annotations, setAnnotations] = useState<SectionAnnotation[]>([]);
+  const [annotations, setAnnotations] = useState<Annotation[]>([]);
 
   const hasProcessedImage = !!page.processedImageUrl;
   const displayUrl = showProcessed ? (page.processedImageUrl ?? page.imageUrl) : page.imageUrl;
@@ -43,7 +44,7 @@ export const PageThumbnail: React.FC<PageThumbnailProps> = ({
     }
     let cancelled = false;
     annotationService
-      .getAnnotations(page.id)
+      .list(page.id)
       .then((data) => {
         if (!cancelled) setAnnotations(data);
       })
@@ -145,43 +146,21 @@ export const PageThumbnail: React.FC<PageThumbnailProps> = ({
                 viewBox={`0 0 ${page.width} ${page.height}`}
                 preserveAspectRatio="xMidYMid meet"
               >
-                {annotations.flatMap((section) => [
-                  <rect
-                    key={`s-${section.id}`}
-                    x={section.boundingBox.x}
-                    y={section.boundingBox.y}
-                    width={section.boundingBox.width}
-                    height={section.boundingBox.height}
-                    fill="#4338ca10"
-                    stroke="#4338ca"
-                    strokeWidth={Math.max(page.width, page.height) / 400}
-                    strokeDasharray={`${Math.max(page.width, page.height) / 200},${Math.max(page.width, page.height) / 100}`}
-                  />,
-                  ...(section.pairAnnotations || []).flatMap((pair) => [
+                {annotations.map((ann) => {
+                  const stroke = captionColor(ann.captionName);
+                  return (
                     <rect
-                      key={`p-${pair.id}`}
-                      x={pair.boundingBox.x}
-                      y={pair.boundingBox.y}
-                      width={pair.boundingBox.width}
-                      height={pair.boundingBox.height}
-                      fill="#5a7a3a10"
-                      stroke="#5a7a3a"
+                      key={ann.id}
+                      x={ann.boundingBox.x}
+                      y={ann.boundingBox.y}
+                      width={ann.boundingBox.width}
+                      height={ann.boundingBox.height}
+                      fill="none"
+                      stroke={stroke}
                       strokeWidth={Math.max(page.width, page.height) / 400}
-                    />,
-                    ...(pair.elementAnnotations || []).map((element) => (
-                      <rect
-                        key={`e-${element.id}`}
-                        x={element.boundingBox.x}
-                        y={element.boundingBox.y}
-                        width={element.boundingBox.width}
-                        height={element.boundingBox.height}
-                        fill="#b91c1c10"
-                        stroke="#b91c1c"
-                        strokeWidth={Math.max(page.width, page.height) / 400}
-                      />
-                    )),
-                  ]),
-                ])}
+                    />
+                  );
+                })}
               </svg>
             )}
           </>

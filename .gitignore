@@ -40,6 +40,14 @@ Thumbs.db
 
 # ---------- Thesis artifacts ----------
 thesis.pdf
+CipherAnnotation/Hierarchical_Object_Detection_in_Historical_Handwritten_Substitution_Cipher_Keys_Using_YOLOv11_with_authors_compressed.pdf
+
+# ---------- Claude / superpowers help ----------
+CipherAnnotation/docs/superpowers/
+docs/superpowers/
+
+# ---------- ML training artifacts ----------
+CipherAnnotation/train_grid/
 
 # ---------- App runtime ----------
 uploads/

@@ -248,6 +248,19 @@ public class DocumentsController : ControllerBase
 
             await _documentRepository.SaveChangesAsync(cancellationToken);
 
+            var seedNames = new[] { "Section", "Pair", "Element" };
+            var now = DateTime.UtcNow;
+            foreach (var (name, idx) in seedNames.Select((n, i) => (n, i)))
+            {
+                _dbContext.Captions.Add(new Caption
+                {
+                    DocumentId = document.Id,
+                    Name = name,
+                    CreatedAt = now.AddMilliseconds(idx),
+                });
+            }
+            await _dbContext.SaveChangesAsync(cancellationToken);
+
             _logger.LogInformation("Document {DocumentId} created by user {UserId} with {PageCount} pages.",
                 document.Id, userId, pageNumber - 1);
 

@@ -8,7 +8,6 @@
 // ============================================================================
 
 export type UserRole = 'User' | 'Admin';
-export type ElementType = 'Plaintext' | 'Ciphertext';
 export type PermissionType = 'Read' | 'Edit';
 export type Visibility = 'Private' | 'Public';
 
@@ -120,6 +119,8 @@ export interface ApplyPreprocessToAllResult {
 // ANNOTATIONS
 // ============================================================================
 
+export type AnnotationType = 'Text' | 'Cipher' | 'Symbol';
+
 export interface BoundingBox {
   x: number;
   y: number;
@@ -127,48 +128,37 @@ export interface BoundingBox {
   height: number;
 }
 
-export interface SectionAnnotation {
+export interface Caption {
+  id: string;
+  documentId: string;
+  name: string;
+  usageCount: number;
+  createdAt: string;
+}
+
+export interface Annotation {
   id: string;
   pageId: string;
-  label?: string;
-  orientation: number;
-  boundingBox: BoundingBox;
-  createdAt: string;
-  pairAnnotations?: PairAnnotation[];
-}
-
-export interface PairAnnotation {
-  id: string;
-  sectionId: string;
-  order: number;
-  orientation: number;
-  boundingBox: BoundingBox;
-  createdAt: string;
-  elementAnnotations?: ElementAnnotation[];
-}
-
-export interface ElementAnnotation {
-  id: string;
-  pairId: string;
-  symbolId?: string;
-  type: ElementType;
+  parentId: string | null;
+  captionId: string;
+  captionName: string;
+  captionNumber: number;
+  type: AnnotationType;
   content?: string;
   transcription?: string;
+  transcriptionRefId?: string | null;
   orientation: number;
   boundingBox: BoundingBox;
-  symbolCode?: string;
   createdAt: string;
 }
 
-// ============================================================================
-// SYMBOL
-// ============================================================================
-
-export interface Symbol {
+/** Lightweight annotation row used by the document-wide Text picker. */
+export interface DocumentAnnotationRef {
   id: string;
-  code: string;
-  previewImageUrl?: string;
-  createdAt: string;
+  pageId: string;
+  pageNumber: number;
+  content?: string;
+  captionLabel: string;
 }
 
 // ============================================================================
@@ -190,10 +180,16 @@ export interface DocumentShare {
 
 export type ExportFormat = 'COCO' | 'YOLO' | 'TFRECORD';
 
+export type CocoVariant = 'BBOX' | 'SEGMENTATION';
+export type YoloVariant = 'DETECTION' | 'SEGMENTATION';
+export type TfRecordVariant = 'DETECTION' | 'CLASSIFICATION';
+
 export interface ExportRequest {
   documentIds: string[];
   format: ExportFormat;
   trainTestSplit: number;
+  variant?: CocoVariant | YoloVariant | TfRecordVariant;
+  captionIds?: string[];
 }
 
 // ============================================================================

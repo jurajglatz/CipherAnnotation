@@ -1,6 +1,7 @@
 /**
  * AnnotationPage Component
- * Main annotation workspace for drawing and managing annotations on manuscript pages
+ * Main annotation workspace for drawing and managing annotations on manuscript pages.
+ * Unified data model: a single Annotation entity with a per-document Caption.
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -10,27 +11,29 @@ import { LoadingSpinner, ConfirmDialog } from '@/components/shared';
 import {
   AnnotationCanvas,
   AnnotationTreePanel,
+  CaptionsPanel,
   PropertiesPanel,
   Toolbar,
   PreprocessPanel,
   PreprocessOperation,
 } from '@/components/annotation';
+import { findDeepestContainer, isDescendantOf } from '@/components/annotation/AnnotationCanvas';
 import { pageService } from '@/services';
-import { useAnnotations } from '@/hooks';
-import { Page, SectionAnnotation, PairAnnotation, ElementAnnotation, BoundingBox, ElementType, PreprocessHistoryEntry } from '@/types';
+import { useAnnotations, useCaptions } from '@/hooks';
+import {
+  Page,
+  Annotation,
+  BoundingBox,
+  PreprocessHistoryEntry,
+} from '@/types';
+import { CreateAnnotationData, UpdateAnnotationData } from '@/services/annotationService';
 
 interface HistoryCommand {
   undo: () => Promise<void>;
   redo: () => Promise<void>;
 }
 
-type ToolType = 'select' | 'section' | 'pair' | 'element';
-
-interface SelectedAnnotation {
-  id: string;
-  type: 'section' | 'pair' | 'element';
-  data: any;
-}
+type ToolType = 'select' | 'annotation';
 
 export const AnnotationPage: React.FC = () => {
   const { documentId, pageId } = useParams<{
@@ -39,37 +42,46 @@ export const AnnotationPage: React.FC = () => {
   }>();
   const navigate = useNavigate();
 
-  // Page and annotation state
   const [page, setPage] = useState<Page | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [pageCount, setPageCount] = useState(0);
   const [pageList, setPageList] = useState<Page[]>([]);
 
-  // Annotation state
   const {
-    sections,
-    fetchAnnotations,
-    createSection,
-    createPair,
-    createElement,
+    annotations,
+    rootIds,
+    byId,
+    childrenByParent,
+    refetch: refetchAnnotations,
+    create: createAnnotation,
+    update: updateAnnotationRaw,
+    remove: removeAnnotation,
     updateBoundingBox,
-    updatePair,
-    updateElement,
-    deleteSection,
-    deletePair,
-    deleteElement,
-    applyAnnotationUpdate,
-  } = useAnnotations();
+    reparent,
+  } = useAnnotations(pageId ?? null);
 
-  // Keep a ref to current sections so history commands can snapshot current state
-  const sectionsRef = useRef<SectionAnnotation[]>(sections);
+  const {
+    captions,
+    refetch: refetchCaptions,
+    create: createCaption,
+    rename: renameCaption,
+    remove: deleteCaption,
+  } = useCaptions(documentId ?? null);
+
+  // Captions list (and its document-wide usageCount) is owned by the server.
+  // Refetch whenever the page's annotation set changes so auto-created captions
+  // (depth ≥ 3) and updated counts show up immediately.
   useEffect(() => {
-    sectionsRef.current = sections;
-  }, [sections]);
+    refetchCaptions();
+  }, [annotations.length, refetchCaptions]);
 
-  // Id remap: when a deleted annotation is re-created via redo, the backend
-  // returns a new id. Subsequent history commands reference the original id,
-  // so we translate through this map at execution time.
+  // Keep a ref to the latest annotations for snapshot-based undo/redo.
+  const annotationsRef = useRef<Annotation[]>(annotations);
+  useEffect(() => {
+    annotationsRef.current = annotations;
+  }, [annotations]);
+
+  // Id remap for re-created annotations across undo/redo.
   const idMap = useRef<Map<string, string>>(new Map());
   const resolveId = useCallback((id: string): string => {
     let current = id;
@@ -87,20 +99,18 @@ export const AnnotationPage: React.FC = () => {
   // UI state
   const [currentTool, setCurrentTool] = useState<ToolType>('select');
   const [zoom, setZoom] = useState(100);
-  const [selectedAnnotation, setSelectedAnnotation] =
-    useState<SelectedAnnotation | null>(null);
+  const [selectedAnnotation, setSelectedAnnotation] = useState<Annotation | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showProcessed, setShowProcessed] = useState(true);
   const [lockedIds, setLockedIds] = useState<Set<string>>(new Set());
 
-  // Preprocessing mode — local state only, persisted on Save
+  // Preprocessing
   const [isPreprocessOpen, setIsPreprocessOpen] = useState(false);
   const [preprocessOps, setPreprocessOps] = useState<PreprocessOperation[]>([]);
   const [isSavingPreprocess, setIsSavingPreprocess] = useState(false);
   const [isResettingPreprocess, setIsResettingPreprocess] = useState(false);
   const [isPreprocessHistoryBusy, setIsPreprocessHistoryBusy] = useState(false);
   const [preprocessHistory, setPreprocessHistory] = useState<PreprocessHistoryEntry[]>([]);
-  // After a successful save, we offer to apply the same batch to every page in the document.
   const [applyAllPrompt, setApplyAllPrompt] = useState<{
     ops: { name: string; value?: number }[];
   } | null>(null);
@@ -112,7 +122,6 @@ export const AnnotationPage: React.FC = () => {
       const state = await pageService.getPreprocessHistory(documentId, pageId);
       setPreprocessHistory(state.entries);
     } catch {
-      // Non-fatal — history panel will just show empty state.
       setPreprocessHistory([]);
     }
   }, [documentId, pageId]);
@@ -129,7 +138,6 @@ export const AnnotationPage: React.FC = () => {
       toast.success('Preprocessing applied');
       setPreprocessOps([]);
       await Promise.all([fetchPageData(), fetchPreprocessHistory()]);
-      // Only prompt for apply-all when the document has more than one page.
       if (pageList.length > 1) {
         setApplyAllPrompt({ ops });
       }
@@ -228,68 +236,34 @@ export const AnnotationPage: React.FC = () => {
     }
   };
 
-  // Keep selectedAnnotation.data in sync with fresh sections after external
-  // mutations (e.g. drag-move) — otherwise stale data leaks into PropertiesPanel,
-  // which fires a stale livePreview that snaps the box back to its pre-move box.
+  // Keep selectedAnnotation reference in sync with the latest annotations array.
   useEffect(() => {
     setSelectedAnnotation((prev) => {
       if (!prev) return prev;
-      for (const s of sections) {
-        if (s.id === prev.id) return prev.data === s ? prev : { ...prev, data: s };
-        for (const p of s.pairAnnotations ?? []) {
-          if (p.id === prev.id) return prev.data === p ? prev : { ...prev, data: p };
-          for (const e of p.elementAnnotations ?? []) {
-            if (e.id === prev.id) return prev.data === e ? prev : { ...prev, data: e };
-          }
-        }
-      }
-      return prev;
+      const fresh = byId.get(prev.id);
+      if (!fresh) return null;
+      return fresh === prev ? prev : fresh;
     });
-  }, [sections]);
+  }, [byId]);
 
-  // Locate any annotation by id across sections/pairs/elements
-  const findAnyById = useCallback((id: string): SelectedAnnotation | null => {
-    for (const s of sectionsRef.current) {
-      if (s.id === id) return { id: s.id, type: 'section', data: s };
-      for (const p of s.pairAnnotations ?? []) {
-        if (p.id === id) return { id: p.id, type: 'pair', data: p };
-        for (const e of p.elementAnnotations ?? []) {
-          if (e.id === id) return { id: e.id, type: 'element', data: e };
+  // Effective locks propagate from ancestors to descendants via parentId.
+  const effectivelyLockedIds = React.useMemo(() => {
+    const locked = new Set<string>();
+    for (const a of annotations) {
+      // Walk up parent chain; if any ancestor (including self) is in lockedIds, mark.
+      let cur: string | null = a.id;
+      const visited = new Set<string>();
+      while (cur && !visited.has(cur)) {
+        visited.add(cur);
+        if (lockedIds.has(cur)) {
+          locked.add(a.id);
+          break;
         }
+        cur = byId.get(cur)?.parentId ?? null;
       }
     }
-    return null;
-  }, []);
-
-  const handleSelectAnnotation = useCallback(
-    (ann: SelectedAnnotation | null, additive = false) => {
-      if (!ann) {
-        setSelectedAnnotation(null);
-        setSelectedIds(new Set());
-        return;
-      }
-      if (!additive) {
-        setSelectedAnnotation(ann);
-        setSelectedIds(new Set([ann.id]));
-        return;
-      }
-      setSelectedIds((prev) => {
-        const next = new Set(prev);
-        if (next.has(ann.id)) {
-          next.delete(ann.id);
-          if (selectedAnnotation?.id === ann.id) {
-            const nextPrimary = next.values().next().value;
-            setSelectedAnnotation(nextPrimary ? findAnyById(nextPrimary) : null);
-          }
-        } else {
-          next.add(ann.id);
-          setSelectedAnnotation(ann);
-        }
-        return next;
-      });
-    },
-    [selectedAnnotation, findAnyById]
-  );
+    return locked;
+  }, [annotations, byId, lockedIds]);
 
   const toggleLock = useCallback((id: string) => {
     setLockedIds((prev) => {
@@ -300,22 +274,7 @@ export const AnnotationPage: React.FC = () => {
     });
   }, []);
 
-  // Effective locks propagate from ancestors to descendants.
-  const effectivelyLockedIds = React.useMemo(() => {
-    const result = new Set<string>();
-    for (const section of sections) {
-      const sectionLocked = lockedIds.has(section.id);
-      if (sectionLocked) result.add(section.id);
-      for (const pair of section.pairAnnotations || []) {
-        const pairLocked = sectionLocked || lockedIds.has(pair.id);
-        if (pairLocked) result.add(pair.id);
-        for (const element of pair.elementAnnotations || []) {
-          if (pairLocked || lockedIds.has(element.id)) result.add(element.id);
-        }
-      }
-    }
-    return result;
-  }, [sections, lockedIds]);
+  // History (undo/redo)
   const [history, setHistory] = useState<HistoryCommand[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const historyIndexRef = useRef(-1);
@@ -335,8 +294,6 @@ export const AnnotationPage: React.FC = () => {
     setHistoryIndex((i) => i + 1);
   }, []);
 
-  // Run an async block and collapse all commands it pushes into a single
-  // undo/redo step, so multi-selection operations undo atomically.
   const runInBatch = useCallback(async (fn: () => Promise<void>) => {
     if (batchingRef.current) { await fn(); return; }
     batchingRef.current = true;
@@ -360,13 +317,56 @@ export const AnnotationPage: React.FC = () => {
       }
     }
   }, []);
+
   const [livePreview, setLivePreview] = useState<{
     id: string;
     orientation?: number;
     boundingBox?: BoundingBox;
   } | null>(null);
 
-  // Fetch page and annotations on mount
+  // Selection
+  const handleSelectAnnotation = useCallback(
+    (ann: Annotation | null, additive = false) => {
+      if (!ann) {
+        setSelectedAnnotation(null);
+        setSelectedIds(new Set());
+        return;
+      }
+      if (!additive) {
+        setSelectedAnnotation(ann);
+        setSelectedIds(new Set([ann.id]));
+        return;
+      }
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(ann.id)) {
+          next.delete(ann.id);
+          if (selectedAnnotation?.id === ann.id) {
+            const nextPrimary = next.values().next().value;
+            const fresh = nextPrimary ? byId.get(nextPrimary) ?? null : null;
+            setSelectedAnnotation(fresh);
+          }
+        } else {
+          next.add(ann.id);
+          setSelectedAnnotation(ann);
+        }
+        return next;
+      });
+    },
+    [selectedAnnotation, byId]
+  );
+
+  // Tree-panel select takes (id, opts) — wrap.
+  const handleSelectFromTree = useCallback(
+    (id: string, opts?: { toggle?: boolean }) => {
+      const ann = byId.get(id);
+      if (!ann) return;
+      handleSelectAnnotation(ann, opts?.toggle ?? false);
+    },
+    [byId, handleSelectAnnotation]
+  );
+
+  // Fetch page on mount/page change
   useEffect(() => {
     if (pageId && documentId) {
       fetchPageData();
@@ -376,200 +376,129 @@ export const AnnotationPage: React.FC = () => {
 
   const fetchPageData = async () => {
     if (!pageId || !documentId) return;
-
     try {
       setIsLoading(true);
       const pageData = await pageService.getPage(documentId, pageId);
       setPage(pageData);
-
-      // Get page count from document
       const pages = await pageService.getPages(documentId);
       setPageCount(pages.length);
       setPageList(pages);
-
-      // Fetch annotations
-      await fetchAnnotations(pageId);
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Failed to load page';
+      const message = error instanceof Error ? error.message : 'Failed to load page';
       toast.error(message);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Find helpers for locating annotations in current state snapshot
-  const findSection = useCallback((id: string) =>
-    sectionsRef.current.find((s) => s.id === id), []);
-  const findPairWithParent = useCallback((id: string) => {
-    for (const s of sectionsRef.current) {
-      const p = s.pairAnnotations?.find((pp) => pp.id === id);
-      if (p) return { section: s, pair: p };
-    }
-    return null;
-  }, []);
-  const findElementWithParent = useCallback((id: string) => {
-    for (const s of sectionsRef.current) {
-      for (const p of s.pairAnnotations ?? []) {
-        const e = p.elementAnnotations?.find((ee) => ee.id === id);
-        if (e) return { section: s, pair: p, element: e };
+  // Snapshot helper for re-creating an annotation (excluding cascaded descendants).
+  const snapshotForRecreate = useCallback(
+    (a: Annotation): CreateAnnotationData => ({
+      parentId: a.parentId,
+      captionId: a.captionId,
+      type: a.type,
+      content: a.content,
+      transcription: a.transcription,
+      transcriptionRefId: a.transcriptionRefId ?? null,
+      orientation: a.orientation,
+      boundingBox: a.boundingBox,
+    }),
+    []
+  );
+
+  // Tracked delete with undo (restores subtree).
+  const trackedDelete = useCallback(async (id: string) => {
+    const realId = resolveId(id);
+    const target = annotationsRef.current.find((a) => a.id === realId);
+    if (!target) return;
+
+    // Capture subtree (depth-first). Children must be recreated after parents on undo.
+    const collectSubtree = (rootId: string): Annotation[] => {
+      const out: Annotation[] = [];
+      const stack = [rootId];
+      while (stack.length) {
+        const cur = stack.pop()!;
+        const a = annotationsRef.current.find((x) => x.id === cur);
+        if (!a) continue;
+        out.push(a);
+        for (const child of annotationsRef.current.filter((c) => c.parentId === cur)) {
+          stack.push(child.id);
+        }
       }
-    }
-    return null;
-  }, []);
+      return out;
+    };
+    const subtree = collectSubtree(realId);
 
-  // Tracked mutations: each recorded to history so they can be undone/redone.
-  const trackedDeleteSection = useCallback(async (pId: string, sectionId: string) => {
-    const realId = resolveId(sectionId);
-    const snapshot = findSection(realId);
-    await deleteSection(pId, realId);
-    if (snapshot) {
-      pushCommand({
-        undo: async () => {
-          const restored = await createSection(pId, {
-            label: snapshot.label,
-            orientation: snapshot.orientation,
-            boundingBox: snapshot.boundingBox,
-          });
-          remapId(realId, restored.id);
-          for (const p of snapshot.pairAnnotations ?? []) {
-            const rp = await createPair(pId, restored.id, {
-              order: p.order,
-              orientation: p.orientation,
-              boundingBox: p.boundingBox,
-            });
-            remapId(p.id, rp.id);
-            for (const e of p.elementAnnotations ?? []) {
-              const re = await createElement(pId, rp.id, {
-                type: e.type,
-                content: e.content,
-                transcription: e.transcription,
-                symbolId: e.symbolId,
-                orientation: e.orientation,
-                boundingBox: e.boundingBox,
-              });
-              remapId(e.id, re.id);
-            }
+    await removeAnnotation(realId);
+
+    pushCommand({
+      undo: async () => {
+        // Recreate from root downward so parentIds resolve.
+        const newIdByOld = new Map<string, string>();
+        // Sort by depth so parents come first.
+        const depth = (a: Annotation): number => {
+          let d = 0;
+          let cur: string | null = a.parentId;
+          while (cur) {
+            d++;
+            cur = annotationsRef.current.find((x) => x.id === cur)?.parentId ?? null;
           }
-        },
-        redo: async () => {
-          await deleteSection(pId, resolveId(realId));
-        },
-      });
-    }
-  }, [deleteSection, createSection, createPair, createElement, findSection, pushCommand, resolveId, remapId]);
-
-  const trackedDeletePair = useCallback(async (pId: string, pairId: string) => {
-    const realId = resolveId(pairId);
-    const found = findPairWithParent(realId);
-    await deletePair(pId, realId);
-    if (found) {
-      const { section, pair } = found;
-      pushCommand({
-        undo: async () => {
-          const restored = await createPair(pId, resolveId(section.id), {
-            order: pair.order,
-            orientation: pair.orientation,
-            boundingBox: pair.boundingBox,
-          });
-          remapId(realId, restored.id);
-          for (const e of pair.elementAnnotations ?? []) {
-            const re = await createElement(pId, restored.id, {
-              type: e.type,
-              content: e.content,
-              transcription: e.transcription,
-              symbolId: e.symbolId,
-              orientation: e.orientation,
-              boundingBox: e.boundingBox,
-            });
-            remapId(e.id, re.id);
+          return d;
+        };
+        const ordered = [...subtree].sort((a, b) => depth(a) - depth(b));
+        for (const a of ordered) {
+          const data = snapshotForRecreate(a);
+          if (a.parentId && newIdByOld.has(a.parentId)) {
+            data.parentId = newIdByOld.get(a.parentId)!;
+          } else if (a.parentId) {
+            data.parentId = resolveId(a.parentId);
           }
-        },
-        redo: async () => {
-          await deletePair(pId, resolveId(realId));
-        },
-      });
-    }
-  }, [deletePair, createPair, createElement, findPairWithParent, pushCommand, resolveId, remapId]);
+          const created = await createAnnotation(data);
+          newIdByOld.set(a.id, created.id);
+          remapId(a.id, created.id);
+        }
+      },
+      redo: async () => {
+        await removeAnnotation(resolveId(realId));
+      },
+    });
+  }, [createAnnotation, removeAnnotation, pushCommand, resolveId, remapId, snapshotForRecreate]);
 
-  const trackedDeleteElement = useCallback(async (pId: string, elementId: string) => {
-    const realId = resolveId(elementId);
-    const found = findElementWithParent(realId);
-    await deleteElement(pId, realId);
-    if (found) {
-      const { pair, element } = found;
-      pushCommand({
-        undo: async () => {
-          const restored = await createElement(pId, resolveId(pair.id), {
-            type: element.type,
-            content: element.content,
-            transcription: element.transcription,
-            symbolId: element.symbolId,
-            orientation: element.orientation,
-            boundingBox: element.boundingBox,
-          });
-          remapId(realId, restored.id);
-        },
-        redo: async () => {
-          await deleteElement(pId, resolveId(realId));
-        },
-      });
-    }
-  }, [deleteElement, createElement, findElementWithParent, pushCommand, resolveId, remapId]);
-
-  // Handle delete on Backspace/Delete key (supports multi-selection)
+  // Multi-delete (Backspace / Delete). Backend cascades, so when an ancestor
+  // is also selected we skip its descendants.
   const handleDeleteSelected = useCallback(async () => {
     if (!pageId || selectedIds.size === 0) return;
+    const selected = Array.from(selectedIds)
+      .map((id) => byId.get(id))
+      .filter((a): a is Annotation => !!a);
+    if (selected.length === 0) return;
 
-    // Gather typed annotations for every selected id
-    const targets: Array<{ id: string; type: 'section' | 'pair' | 'element' }> = [];
-    for (const id of selectedIds) {
-      const found = findAnyById(id);
-      if (found) targets.push({ id: found.id, type: found.type });
-    }
-    if (targets.length === 0) return;
-
-    // Delete leaves first so parents still exist when children are removed
-    const priority = { element: 0, pair: 1, section: 2 } as const;
-    targets.sort((a, b) => priority[a.type] - priority[b.type]);
-
-    // Skip descendants when an ancestor is also selected — backend cascades
-    const selectedSet = new Set(targets.map((t) => t.id));
-    const filtered = targets.filter((t) => {
-      if (t.type === 'element') {
-        const parent = findElementWithParent(t.id);
-        if (!parent) return false;
-        return !selectedSet.has(parent.pair.id) && !selectedSet.has(parent.section.id);
-      }
-      if (t.type === 'pair') {
-        const parent = findPairWithParent(t.id);
-        if (!parent) return false;
-        return !selectedSet.has(parent.section.id);
+    const selectedSet = new Set(selected.map((a) => a.id));
+    const filtered = selected.filter((a) => {
+      let cur: string | null = a.parentId;
+      while (cur) {
+        if (selectedSet.has(cur)) return false;
+        cur = byId.get(cur)?.parentId ?? null;
       }
       return true;
     });
 
     try {
       await runInBatch(async () => {
-        for (const item of filtered) {
-          if (item.type === 'section') await trackedDeleteSection(pageId, item.id);
-          else if (item.type === 'pair') await trackedDeletePair(pageId, item.id);
-          else await trackedDeleteElement(pageId, item.id);
-        }
+        for (const a of filtered) await trackedDelete(a.id);
       });
       toast.success(
-        targets.length === 1
-          ? `${targets[0].type.charAt(0).toUpperCase() + targets[0].type.slice(1)} deleted`
-          : `Deleted ${targets.length} annotations`
+        selected.length === 1
+          ? 'Annotation deleted'
+          : `Deleted ${selected.length} annotations`
       );
       setSelectedAnnotation(null);
       setSelectedIds(new Set());
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Failed to delete annotation';
+      const message = error instanceof Error ? error.message : 'Failed to delete annotation';
       toast.error(message);
     }
-  }, [selectedIds, pageId, trackedDeleteSection, trackedDeletePair, trackedDeleteElement, findAnyById, findElementWithParent, findPairWithParent, runInBatch]);
+  }, [pageId, selectedIds, byId, trackedDelete, runInBatch]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -590,513 +519,250 @@ export const AnnotationPage: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleDeleteSelected]);
 
-  // Handle navigation to different pages
   const handlePrevPage = () => {
     if (!page || !documentId) return;
     const prev = pageList.find((p) => p.pageNumber === page.pageNumber - 1);
-    if (prev) {
-      navigate(`/documents/${documentId}/annotate/${prev.id}`);
-    }
+    if (prev) navigate(`/documents/${documentId}/annotate/${prev.id}`);
   };
 
   const handleNextPage = () => {
     if (!page || !documentId) return;
     const next = pageList.find((p) => p.pageNumber === page.pageNumber + 1);
-    if (next) {
-      navigate(`/documents/${documentId}/annotate/${next.id}`);
-    }
+    if (next) navigate(`/documents/${documentId}/annotate/${next.id}`);
   };
 
-  // Check how much of childBox's area overlaps with parentBox (0-1)
-  const getOverlapRatio = (child: BoundingBox, parent: BoundingBox): number => {
-    const overlapX = Math.max(0, Math.min(child.x + child.width, parent.x + parent.width) - Math.max(child.x, parent.x));
-    const overlapY = Math.max(0, Math.min(child.y + child.height, parent.y + parent.height) - Math.max(child.y, parent.y));
-    const overlapArea = overlapX * overlapY;
-    const childArea = child.width * child.height;
-    return childArea > 0 ? overlapArea / childArea : 0;
-  };
-
-  // Find the best parent section for a pair based on bounding box overlap
-  const findParentSection = (boundingBox: BoundingBox) => {
-    let bestSection: SectionAnnotation | null = null;
-    let bestOverlap = 0;
-    for (const section of sections) {
-      const overlap = getOverlapRatio(boundingBox, section.boundingBox);
-      if (overlap > bestOverlap) {
-        bestOverlap = overlap;
-        bestSection = section;
+  // ---------------------------------------------------------------------------
+  // Unified create flow — single 'annotation' tool branch.
+  // Geometric containment: deepest container becomes parent.
+  // ---------------------------------------------------------------------------
+  const handleCreateFromBox = useCallback(
+    async (box: BoundingBox): Promise<Annotation | null> => {
+      if (!pageId) return null;
+      try {
+        const parent = findDeepestContainer(annotationsRef.current, box);
+        const created = await createAnnotation({
+          parentId: parent?.id ?? null,
+          type: 'Text',
+          orientation: 0,
+          boundingBox: box,
+        });
+        const originalId = created.id;
+        pushCommand({
+          undo: async () => {
+            await removeAnnotation(resolveId(originalId));
+          },
+          redo: async () => {
+            // Recompute parent against current state — original `parent`
+            // may have been deleted between undo and redo.
+            const liveParent = findDeepestContainer(annotationsRef.current, box);
+            const recreated = await createAnnotation({
+              parentId: liveParent?.id ?? null,
+              type: 'Text',
+              orientation: 0,
+              boundingBox: box,
+            });
+            remapId(originalId, recreated.id);
+          },
+        });
+        toast.success('Annotation created');
+        return created;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to create annotation';
+        toast.error(message);
+        return null;
       }
-    }
-    return bestOverlap > 0.3 ? bestSection : null;
-  };
+    },
+    [pageId, createAnnotation, removeAnnotation, pushCommand, resolveId, remapId]
+  );
 
-  // Find the best parent pair for an element based on bounding box overlap
-  const findParentPair = (boundingBox: BoundingBox) => {
-    let bestPair: { sectionId: string; pair: any } | null = null;
-    let bestOverlap = 0;
-    for (const section of sections) {
-      for (const pair of section.pairAnnotations || []) {
-        const overlap = getOverlapRatio(boundingBox, pair.boundingBox);
-        if (overlap > bestOverlap) {
-          bestOverlap = overlap;
-          bestPair = { sectionId: section.id, pair };
+  // Drag-end: update box, then reparent based on geometric containment.
+  const handleDragEndAnnotation = useCallback(
+    async (id: string, newBox: BoundingBox) => {
+      const realId = resolveId(id);
+      const current = annotationsRef.current.find((a) => a.id === realId);
+      if (!current) return;
+      const oldBox = current.boundingBox;
+      const oldParentId = current.parentId;
+
+      try {
+        await updateBoundingBox(realId, newBox);
+
+        const candidates = annotationsRef.current.filter(
+          (a) => a.id !== realId && !isDescendantOf(annotationsRef.current, a.id, realId)
+        );
+        const newParent = findDeepestContainer(candidates, newBox);
+        const newParentId = newParent?.id ?? null;
+        const reparented = newParentId !== oldParentId;
+        if (reparented) {
+          await reparent(realId, newParentId);
         }
-      }
-    }
-    return bestOverlap >= 0.8 ? bestPair : null;
-  };
 
-  const DUPLICATE_OFFSET = 10;
-
-  // Find the current bounding box of any annotation by id (used to capture pre-update state)
-  const findBoundingBox = useCallback((id: string): BoundingBox | null => {
-    for (const s of sectionsRef.current) {
-      if (s.id === id) return s.boundingBox;
-      for (const p of s.pairAnnotations ?? []) {
-        if (p.id === id) return p.boundingBox;
-        for (const el of p.elementAnnotations ?? []) {
-          if (el.id === id) return el.boundingBox;
-        }
-      }
-    }
-    return null;
-  }, []);
-
-  // Minimum portion of each child that must remain inside the parent bounds after a parent move.
-  // Allows small tolerance so children don't need to be pixel-perfect inside.
-  const CHILD_CONTAINMENT_THRESHOLD = 0.8;
-
-  // If moving a parent (section/pair), verify all its children still overlap the new bounds enough
-  const childrenWouldEscape = (id: string, newBox: BoundingBox): boolean => {
-    const escapes = (child: BoundingBox) =>
-      getOverlapRatio(child, newBox) < CHILD_CONTAINMENT_THRESHOLD;
-
-    for (const s of sectionsRef.current) {
-      if (s.id === id) {
-        for (const p of s.pairAnnotations ?? []) {
-          if (escapes(p.boundingBox)) return true;
-          for (const el of p.elementAnnotations ?? []) {
-            if (escapes(el.boundingBox)) return true;
-          }
-        }
-        return false;
-      }
-      for (const p of s.pairAnnotations ?? []) {
-        if (p.id === id) {
-          for (const el of p.elementAnnotations ?? []) {
-            if (escapes(el.boundingBox)) return true;
-          }
-          return false;
-        }
-      }
-    }
-    return false;
-  };
-
-  // Update bounding box and reparent pair/element if the new position falls under a different parent
-  const handleBoundingBoxUpdated = async (pId: string, boxId: string, box: BoundingBox) => {
-    const realId = resolveId(boxId);
-    const oldBox = findBoundingBox(realId);
-
-    if (childrenWouldEscape(realId, box)) {
-      toast.error('Nie je možné presunúť rodiča - niektoré detské elementy by zostali mimo jeho hraníc.');
-      return null;
-    }
-
-    // If moving an element, require at least 80% of its area to remain inside some pair
-    let isElement = false;
-    for (const s of sectionsRef.current) {
-      for (const p of s.pairAnnotations ?? []) {
-        if ((p.elementAnnotations ?? []).some((el) => el.id === realId)) {
-          isElement = true;
-          break;
-        }
-      }
-      if (isElement) break;
-    }
-    if (isElement && !findParentPair(box)) {
-      toast.error('Element musí mať aspoň 80 % svojej plochy vo vnútri nejakého páru.');
-      return null;
-    }
-
-    const updated = await updateBoundingBox(pId, realId, box);
-
-    // Track reparenting if applicable
-    let reparent: { type: 'pair' | 'element'; oldParentId: string; newParentId: string } | null = null;
-
-    outer: for (const s of sectionsRef.current) {
-      if (s.id === realId) break; // section has no parent to reassign
-      for (const p of s.pairAnnotations ?? []) {
-        if (p.id === realId) {
-          const newParent = findParentSection(box);
-          if (newParent && newParent.id !== s.id) {
-            await updatePair(pId, realId, { sectionId: newParent.id });
-            reparent = { type: 'pair', oldParentId: s.id, newParentId: newParent.id };
-          }
-          break outer;
-        }
-        for (const el of p.elementAnnotations ?? []) {
-          if (el.id === realId) {
-            const newParent = findParentPair(box);
-            if (newParent && newParent.pair.id !== p.id) {
-              await updateElement(pId, realId, { pairId: newParent.pair.id });
-              reparent = { type: 'element', oldParentId: p.id, newParentId: newParent.pair.id };
+        pushCommand({
+          undo: async () => {
+            await updateBoundingBox(resolveId(realId), oldBox);
+            if (reparented) {
+              await reparent(resolveId(realId), oldParentId ? resolveId(oldParentId) : null);
             }
-            break outer;
-          }
-        }
+          },
+          redo: async () => {
+            await updateBoundingBox(resolveId(realId), newBox);
+            if (reparented) {
+              await reparent(resolveId(realId), newParentId ? resolveId(newParentId) : null);
+            }
+          },
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to update annotation';
+        toast.error(message);
       }
-    }
+    },
+    [updateBoundingBox, reparent, pushCommand, resolveId]
+  );
 
-    if (oldBox) {
-      const capturedReparent = reparent;
-      pushCommand({
-        undo: async () => {
-          await updateBoundingBox(pId, resolveId(realId), oldBox);
-          if (capturedReparent?.type === 'pair') {
-            await updatePair(pId, resolveId(realId), { sectionId: resolveId(capturedReparent.oldParentId) });
-          } else if (capturedReparent?.type === 'element') {
-            await updateElement(pId, resolveId(realId), { pairId: resolveId(capturedReparent.oldParentId) });
-          }
-        },
-        redo: async () => {
-          await updateBoundingBox(pId, resolveId(realId), box);
-          if (capturedReparent?.type === 'pair') {
-            await updatePair(pId, resolveId(realId), { sectionId: resolveId(capturedReparent.newParentId) });
-          } else if (capturedReparent?.type === 'element') {
-            await updateElement(pId, resolveId(realId), { pairId: resolveId(capturedReparent.newParentId) });
-          }
-        },
+  // Multi-move: same delta applied to each item; reparent each.
+  const handleMultiBoundingBoxUpdated = useCallback(
+    async (updates: Array<{ id: string; box: BoundingBox }>) => {
+      if (updates.length === 0) return;
+      // Resolve real ids and compute the projected post-move snapshot ONCE,
+      // so each item's reparent decision sees the final state of the others
+      // (not the stale pre-move boxes).
+      const resolved = updates.map((u) => ({ realId: resolveId(u.id), box: u.box }));
+      const movedIds = new Set(resolved.map((r) => r.realId));
+      const projected = annotationsRef.current.map((a) => {
+        const m = resolved.find((r) => r.realId === a.id);
+        return m ? { ...a, boundingBox: m.box } : a;
       });
-    }
-
-    return updated;
-  };
-
-  // Tracked creation helpers - record in history for undo/redo
-  const trackedCreateSection = useCallback(async (
-    pId: string,
-    data: { label?: string; orientation?: number; boundingBox: BoundingBox }
-  ) => {
-    const created = await createSection(pId, data);
-    const originalId = created.id;
-    pushCommand({
-      undo: async () => {
-        await deleteSection(pId, resolveId(originalId));
-      },
-      redo: async () => {
-        const recreated = await createSection(pId, data);
-        remapId(originalId, recreated.id);
-      },
-    });
-    return created;
-  }, [createSection, deleteSection, pushCommand, resolveId, remapId]);
-
-  const trackedCreatePair = useCallback(async (
-    pId: string,
-    sectionId: string,
-    data: { order: number; orientation?: number; boundingBox: BoundingBox }
-  ) => {
-    const created = await createPair(pId, sectionId, data);
-    const originalId = created.id;
-    pushCommand({
-      undo: async () => {
-        await deletePair(pId, resolveId(originalId));
-      },
-      redo: async () => {
-        const recreated = await createPair(pId, resolveId(sectionId), data);
-        remapId(originalId, recreated.id);
-      },
-    });
-    return created;
-  }, [createPair, deletePair, pushCommand, resolveId, remapId]);
-
-  const trackedCreateElement = useCallback(async (
-    pId: string,
-    pairId: string,
-    data: { type: ElementType; content?: string; transcription?: string; symbolId?: string; orientation?: number; boundingBox: BoundingBox }
-  ) => {
-    const created = await createElement(pId, pairId, data);
-    const originalId = created.id;
-    pushCommand({
-      undo: async () => {
-        await deleteElement(pId, resolveId(originalId));
-      },
-      redo: async () => {
-        const recreated = await createElement(pId, resolveId(pairId), data);
-        remapId(originalId, recreated.id);
-      },
-    });
-    return created;
-  }, [createElement, deleteElement, pushCommand, resolveId, remapId]);
-
-  // Handle duplication of element
-  const handleDuplicateElement = async (element: ElementAnnotation, pairId: string) => {
-    if (!pageId) return;
-    try {
-      const newElement = await trackedCreateElement(pageId, pairId, {
-        type: element.type,
-        content: element.content,
-        transcription: element.transcription,
-        symbolId: element.symbolId,
-        orientation: element.orientation,
-        boundingBox: { ...element.boundingBox, x: element.boundingBox.x + DUPLICATE_OFFSET, y: element.boundingBox.y + DUPLICATE_OFFSET },
-      });
-      setSelectedAnnotation({ id: newElement.id, type: 'element', data: newElement });
-      toast.success('Element duplicated');
-    } catch (error) {
-      toast.error('Failed to duplicate element');
-    }
-  };
-
-  // Handle duplication of pair (only the pair itself, no children)
-  const handleDuplicatePair = async (pair: PairAnnotation, sectionId: string) => {
-    if (!pageId) return;
-    try {
-      const newPair = await trackedCreatePair(pageId, sectionId, {
-        order: pair.order,
-        orientation: pair.orientation,
-        boundingBox: { ...pair.boundingBox, x: pair.boundingBox.x + DUPLICATE_OFFSET, y: pair.boundingBox.y + DUPLICATE_OFFSET },
-      });
-      setSelectedAnnotation({ id: newPair.id, type: 'pair', data: newPair });
-      toast.success('Pair duplicated');
-    } catch (error) {
-      toast.error('Failed to duplicate pair');
-    }
-  };
-
-  // Duplicate all currently selected annotations as a single history step
-  const handleDuplicateSelected = useCallback(async () => {
-    if (!pageId || selectedIds.size === 0) return;
-    const items: Array<SelectedAnnotation> = [];
-    for (const id of selectedIds) {
-      const found = findAnyById(id);
-      if (found) items.push(found);
-    }
-    if (items.length === 0) return;
-
-    try {
-      const created: Array<{ id: string; type: 'section' | 'pair' | 'element' }> = [];
+      void movedIds;
       await runInBatch(async () => {
-        for (const item of items) {
-          if (item.type === 'element') {
-            const found = findElementWithParent(item.id);
-            if (!found) continue;
-            const el = found.element;
-            const newEl = await trackedCreateElement(pageId, found.pair.id, {
-              type: el.type,
-              content: el.content,
-              transcription: el.transcription,
-              symbolId: el.symbolId,
-              orientation: el.orientation,
-              boundingBox: { ...el.boundingBox, x: el.boundingBox.x + DUPLICATE_OFFSET, y: el.boundingBox.y + DUPLICATE_OFFSET },
-            });
-            created.push({ id: newEl.id, type: 'element' });
-          } else if (item.type === 'pair') {
-            const found = findPairWithParent(item.id);
-            if (!found) continue;
-            const p = found.pair;
-            const newPair = await trackedCreatePair(pageId, found.section.id, {
-              order: p.order,
-              orientation: p.orientation,
-              boundingBox: { ...p.boundingBox, x: p.boundingBox.x + DUPLICATE_OFFSET, y: p.boundingBox.y + DUPLICATE_OFFSET },
-            });
-            created.push({ id: newPair.id, type: 'pair' });
-          } else {
-            const s = findSection(item.id);
-            if (!s) continue;
-            const newSec = await trackedCreateSection(pageId, {
-              label: s.label,
-              orientation: s.orientation,
-              boundingBox: { ...s.boundingBox, x: s.boundingBox.x + DUPLICATE_OFFSET, y: s.boundingBox.y + DUPLICATE_OFFSET },
-            });
-            created.push({ id: newSec.id, type: 'section' });
+        for (const r of resolved) {
+          // Exclude self and any descendant of the item being placed.
+          const safeCandidates = projected.filter(
+            (a) => a.id !== r.realId && !isDescendantOf(projected, a.id, r.realId)
+          );
+          const newParent = findDeepestContainer(safeCandidates, r.box);
+          const newParentId = newParent?.id ?? null;
+          const current = annotationsRef.current.find((a) => a.id === r.realId);
+          const oldBox = current?.boundingBox;
+          const oldParentId = current?.parentId ?? null;
+          await updateBoundingBox(r.realId, r.box);
+          const reparented = newParentId !== oldParentId;
+          if (reparented) {
+            await reparent(r.realId, newParentId);
           }
-        }
-      });
-      if (created.length > 0) {
-        setSelectedIds(new Set(created.map((c) => c.id)));
-        const primary = created[0];
-        const resolved = findAnyById(primary.id);
-        if (resolved) setSelectedAnnotation(resolved);
-        toast.success(created.length === 1 ? 'Duplicated' : `Duplicated ${created.length} annotations`);
-      }
-    } catch (error) {
-      toast.error('Failed to duplicate');
-    }
-  }, [pageId, selectedIds, findAnyById, findSection, findPairWithParent, findElementWithParent, trackedCreateSection, trackedCreatePair, trackedCreateElement, runInBatch]);
-
-  // Move all selected boxes by applying identical (dx, dy) deltas atomically.
-  // Per item, reassign parent if the new box falls under a different section/pair.
-  const handleMultiBoundingBoxUpdated = async (
-    pId: string,
-    updates: Array<{ id: string; box: BoundingBox }>
-  ) => {
-    if (updates.length === 0) return;
-
-    // Pre-validate: parents must keep their children, elements must remain inside some pair
-    for (const u of updates) {
-      const realId = resolveId(u.id);
-      if (childrenWouldEscape(realId, u.box)) {
-        toast.error('Nie je možné presunúť rodiča - niektoré detské elementy by zostali mimo jeho hraníc.');
-        return;
-      }
-      let isElement = false;
-      for (const s of sectionsRef.current) {
-        for (const p of s.pairAnnotations ?? []) {
-          if ((p.elementAnnotations ?? []).some((el) => el.id === realId)) {
-            isElement = true;
-            break;
-          }
-        }
-        if (isElement) break;
-      }
-      if (isElement && !findParentPair(u.box)) {
-        toast.error('Element musí mať aspoň 80 % svojej plochy vo vnútri nejakého páru.');
-        return;
-      }
-    }
-
-    await runInBatch(async () => {
-      for (const u of updates) {
-        const realId = resolveId(u.id);
-        const oldBox = findBoundingBox(realId);
-        await updateBoundingBox(pId, realId, u.box);
-
-        let reparent: { type: 'pair' | 'element'; oldParentId: string; newParentId: string } | null = null;
-        outer: for (const s of sectionsRef.current) {
-          if (s.id === realId) break;
-          for (const p of s.pairAnnotations ?? []) {
-            if (p.id === realId) {
-              const newParent = findParentSection(u.box);
-              if (newParent && newParent.id !== s.id) {
-                await updatePair(pId, realId, { sectionId: newParent.id });
-                reparent = { type: 'pair', oldParentId: s.id, newParentId: newParent.id };
-              }
-              break outer;
-            }
-            for (const el of p.elementAnnotations ?? []) {
-              if (el.id === realId) {
-                const newParent = findParentPair(u.box);
-                if (newParent && newParent.pair.id !== p.id) {
-                  await updateElement(pId, realId, { pairId: newParent.pair.id });
-                  reparent = { type: 'element', oldParentId: p.id, newParentId: newParent.pair.id };
+          if (oldBox) {
+            pushCommand({
+              undo: async () => {
+                await updateBoundingBox(resolveId(r.realId), oldBox);
+                if (reparented) {
+                  await reparent(
+                    resolveId(r.realId),
+                    oldParentId ? resolveId(oldParentId) : null
+                  );
                 }
-                break outer;
-              }
-            }
+              },
+              redo: async () => {
+                await updateBoundingBox(resolveId(r.realId), r.box);
+                if (reparented) {
+                  await reparent(
+                    resolveId(r.realId),
+                    newParentId ? resolveId(newParentId) : null
+                  );
+                }
+              },
+            });
           }
         }
-
-        if (oldBox) {
-          const capturedNew = u.box;
-          const capturedReparent = reparent;
-          pushCommand({
-            undo: async () => {
-              await updateBoundingBox(pId, resolveId(realId), oldBox);
-              if (capturedReparent?.type === 'pair') {
-                await updatePair(pId, resolveId(realId), { sectionId: resolveId(capturedReparent.oldParentId) });
-              } else if (capturedReparent?.type === 'element') {
-                await updateElement(pId, resolveId(realId), { pairId: resolveId(capturedReparent.oldParentId) });
-              }
-            },
-            redo: async () => {
-              await updateBoundingBox(pId, resolveId(realId), capturedNew);
-              if (capturedReparent?.type === 'pair') {
-                await updatePair(pId, resolveId(realId), { sectionId: resolveId(capturedReparent.newParentId) });
-              } else if (capturedReparent?.type === 'element') {
-                await updateElement(pId, resolveId(realId), { pairId: resolveId(capturedReparent.newParentId) });
-              }
-            },
-          });
-        }
-      }
-    });
-  };
-
-  // Handle duplication of section (only the section itself, no children)
-  const handleDuplicateSection = async (section: SectionAnnotation) => {
-    if (!pageId) return;
-    try {
-      const newSection = await trackedCreateSection(pageId, {
-        label: section.label,
-        orientation: section.orientation,
-        boundingBox: { ...section.boundingBox, x: section.boundingBox.x + DUPLICATE_OFFSET, y: section.boundingBox.y + DUPLICATE_OFFSET },
       });
-      setSelectedAnnotation({ id: newSection.id, type: 'section', data: newSection });
-      toast.success('Section duplicated');
-    } catch (error) {
-      toast.error('Failed to duplicate section');
-    }
-  };
+    },
+    [resolveId, runInBatch, updateBoundingBox, reparent, pushCommand]
+  );
 
-  // Handle annotation creation
-  const handleAnnotationCreated = async (
-    boundingBox: { x: number; y: number; width: number; height: number }
-  ) => {
-    if (!pageId) return;
-
-    try {
-      if (currentTool === 'section') {
-        const section = await trackedCreateSection(pageId, {
-          boundingBox,
-          orientation: 0,
+  // Properties-panel update wrapper — also undoable.
+  const handleUpdateAnnotation = useCallback(
+    async (id: string, data: Partial<Omit<Annotation, 'id'>>) => {
+      const realId = resolveId(id);
+      const before = annotationsRef.current.find((a) => a.id === realId);
+      if (!before) return;
+      const beforeData: UpdateAnnotationData = {
+        captionId: before.captionId,
+        type: before.type,
+        content: before.content,
+        transcription: before.transcription,
+        transcriptionRefId: before.transcriptionRefId ?? null,
+        orientation: before.orientation,
+        boundingBox: before.boundingBox,
+      };
+      // Strip parentId/etc not allowed in PropertiesPanel payload — pass-through everything else.
+      const afterData: UpdateAnnotationData = { ...data } as UpdateAnnotationData;
+      try {
+        await updateAnnotationRaw(realId, afterData);
+        pushCommand({
+          undo: async () => {
+            await updateAnnotationRaw(resolveId(realId), beforeData);
+          },
+          redo: async () => {
+            await updateAnnotationRaw(resolveId(realId), afterData);
+          },
         });
-        toast.success('Section created');
-        setSelectedAnnotation({
-          id: section.id,
-          type: 'section',
-          data: section,
-        });
-      } else if (currentTool === 'pair') {
-        const parentSection = findParentSection(boundingBox);
-        if (!parentSection) {
-          toast.error('Draw the pair inside a section bounding box');
-          return;
-        }
-        const pairCount = parentSection.pairAnnotations?.length || 0;
-        const pair = await trackedCreatePair(pageId, parentSection.id, {
-          boundingBox,
-          orientation: 0,
-          order: pairCount + 1,
-        });
-        toast.success('Pair created');
-        setSelectedAnnotation({
-          id: pair.id,
-          type: 'pair',
-          data: pair,
-        });
-      } else if (currentTool === 'element') {
-        const parentPair = findParentPair(boundingBox);
-        if (!parentPair) {
-          toast.error('Element musí mať aspoň 80 % svojej plochy vo vnútri nejakého páru.');
-          return;
-        }
-        const element = await trackedCreateElement(pageId, parentPair.pair.id, {
-          boundingBox,
-          orientation: 0,
-          type: 'Plaintext',
-        });
-        toast.success('Element created');
-        setSelectedAnnotation({
-          id: element.id,
-          type: 'element',
-          data: element,
-        });
+        setLivePreview(null);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to update annotation';
+        toast.error(message);
+        throw error;
       }
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Failed to create annotation';
-      toast.error(message);
-    }
-  };
+    },
+    [updateAnnotationRaw, pushCommand, resolveId]
+  );
 
-  // Handle zoom changes
-  const handleZoomChange = (newZoom: number) => {
-    setZoom(newZoom);
-  };
+  // Caption mutations: thin wrappers returning void (CaptionsPanel expects Promise<void>).
+  const handleAddCaption = useCallback(
+    async (name: string) => {
+      try {
+        await createCaption(name);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to add caption';
+        toast.error(message);
+        throw error;
+      }
+    },
+    [createCaption]
+  );
+  const handleRenameCaption = useCallback(
+    async (id: string, name: string) => {
+      try {
+        await renameCaption(id, name);
+        await refetchAnnotations();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to rename caption';
+        toast.error(message);
+        throw error;
+      }
+    },
+    [renameCaption, refetchAnnotations]
+  );
+  const handleDeleteCaption = useCallback(
+    async (id: string) => {
+      try {
+        await deleteCaption(id);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to delete caption';
+        toast.error(message);
+        throw error;
+      }
+    },
+    [deleteCaption]
+  );
 
-  // Handle undo/redo
+  // Single-id delete from tree
+  const handleDeleteFromTree = useCallback(
+    (id: string) => {
+      void runInBatch(async () => { await trackedDelete(id); });
+    },
+    [trackedDelete, runInBatch]
+  );
+
+  const handleZoomChange = (newZoom: number) => setZoom(newZoom);
+
   const handleUndo = useCallback(async () => {
     if (historyIndex < 0 || isReplayingRef.current) return;
     const cmd = history[historyIndex];
@@ -1132,7 +798,6 @@ export const AnnotationPage: React.FC = () => {
   const canUndo = historyIndex >= 0;
   const canRedo = historyIndex < history.length - 1;
 
-  // Keyboard shortcuts for undo/redo
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement).tagName;
@@ -1145,16 +810,12 @@ export const AnnotationPage: React.FC = () => {
       } else if ((e.key === 'y') || (e.key === 'z' && e.shiftKey)) {
         e.preventDefault();
         handleRedo();
-      } else if (e.key === 'd') {
-        e.preventDefault();
-        handleDuplicateSelected();
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [handleUndo, handleRedo, handleDuplicateSelected]);
+  }, [handleUndo, handleRedo]);
 
-  // Reset history when page changes
   useEffect(() => {
     setHistory([]);
     setHistoryIndex(-1);
@@ -1166,7 +827,6 @@ export const AnnotationPage: React.FC = () => {
 
   return (
     <div className="h-[calc(100vh-4rem)] flex flex-col bg-parchment-100">
-      {/* Toolbar */}
       <Toolbar
         currentTool={currentTool}
         zoom={zoom}
@@ -1187,45 +847,39 @@ export const AnnotationPage: React.FC = () => {
         onTogglePreprocess={handleTogglePreprocess}
       />
 
-      {/* Main content area */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Left sidebar - Annotation tree */}
+        {/* Left sidebar: Annotation tree */}
         <div className="w-80 border-r border-sepia-600/20 bg-parchment-50 overflow-y-auto">
           <AnnotationTreePanel
-            sections={sections}
-            selectedAnnotation={selectedAnnotation}
+            rootIds={rootIds}
+            byId={byId}
+            childrenByParent={childrenByParent}
             selectedIds={selectedIds}
-            onSelectAnnotation={handleSelectAnnotation}
-            onDeleteSection={trackedDeleteSection}
-            onDeletePair={trackedDeletePair}
-            onDeleteElement={trackedDeleteElement}
-            onDuplicateSection={handleDuplicateSection}
-            onDuplicatePair={handleDuplicatePair}
-            onDuplicateElement={handleDuplicateElement}
-            onDuplicateSelected={handleDuplicateSelected}
+            onSelect={handleSelectFromTree}
+            onDelete={handleDeleteFromTree}
             lockedIds={lockedIds}
             effectivelyLockedIds={effectivelyLockedIds}
             onToggleLock={toggleLock}
-            pageId={pageId!}
           />
         </div>
 
-        {/* Center - Canvas area */}
+        {/* Center: canvas */}
         <div className="flex-1 bg-parchment-200/50 overflow-hidden">
           {page && (
             <AnnotationCanvas
               page={page}
-              annotations={sections}
+              annotations={annotations}
+              captions={captions}
               currentTool={currentTool}
               zoom={zoom}
               selectedAnnotation={selectedAnnotation}
               selectedIds={selectedIds}
-              onAnnotationCreated={handleAnnotationCreated}
+              onCreateFromBox={handleCreateFromBox}
               onAnnotationSelected={(ann, additive) => {
                 handleSelectAnnotation(ann, additive);
                 setLivePreview(null);
               }}
-              onBoundingBoxUpdated={handleBoundingBoxUpdated}
+              onDragEndAnnotation={handleDragEndAnnotation}
               onMultiBoundingBoxUpdated={handleMultiBoundingBoxUpdated}
               showProcessed={showProcessed}
               livePreview={livePreview}
@@ -1236,8 +890,8 @@ export const AnnotationPage: React.FC = () => {
           )}
         </div>
 
-        {/* Right sidebar - Properties or Preprocess panel */}
-        <div className="w-72 border-l border-sepia-600/20 bg-parchment-50 overflow-y-auto">
+        {/* Right sidebar: Captions + Properties (or Preprocess panel) */}
+        <div className="w-72 border-l border-sepia-600/20 bg-parchment-50 overflow-y-auto flex flex-col">
           {isPreprocessOpen ? (
             <PreprocessPanel
               operations={preprocessOps}
@@ -1255,24 +909,26 @@ export const AnnotationPage: React.FC = () => {
               history={preprocessHistory}
             />
           ) : (
-          <PropertiesPanel
-            selectedAnnotation={selectedAnnotation}
-            pageId={pageId!}
-            pageImageUrl={showProcessed ? (page.processedImageUrl ?? page.imageUrl) : page.imageUrl}
-            pageWidth={page.width}
-            pageHeight={page.height}
-            onAnnotationUpdated={(updated) => {
-              const type = selectedAnnotation!.type;
-              applyAnnotationUpdate(type, updated);
-              setSelectedAnnotation({
-                ...selectedAnnotation!,
-                data: updated,
-              });
-              setLivePreview(null);
-            }}
-            onLivePreview={(preview) => setLivePreview(preview)}
-            onDelete={handleDeleteSelected}
-          />
+            <>
+              <CaptionsPanel
+                captions={captions}
+                annotations={annotations}
+                onAdd={handleAddCaption}
+                onRename={handleRenameCaption}
+                onDelete={handleDeleteCaption}
+                onSelectByCaption={(captionId) => {
+                  const ids = annotations.filter((a) => a.captionId === captionId).map((a) => a.id);
+                  setSelectedIds(new Set(ids));
+                }}
+              />
+              <PropertiesPanel
+                annotation={selectedAnnotation}
+                captions={captions}
+                documentId={documentId || ''}
+                onUpdate={handleUpdateAnnotation}
+                onDelete={handleDeleteFromTree}
+              />
+            </>
           )}
         </div>
       </div>

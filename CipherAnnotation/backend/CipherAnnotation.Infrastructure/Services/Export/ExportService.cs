@@ -82,22 +82,11 @@ public class ExportService : IExportService
         var document = await _db.Documents
             .AsNoTracking()
             .Include(d => d.Pages)
-                .ThenInclude(p => p.SectionAnnotations)
-                    .ThenInclude(s => s.BoundingBox)
+                .ThenInclude(p => p.Annotations)
+                    .ThenInclude(a => a.BoundingBox)
             .Include(d => d.Pages)
-                .ThenInclude(p => p.SectionAnnotations)
-                    .ThenInclude(s => s.PairAnnotations)
-                        .ThenInclude(pa => pa.BoundingBox)
-            .Include(d => d.Pages)
-                .ThenInclude(p => p.SectionAnnotations)
-                    .ThenInclude(s => s.PairAnnotations)
-                        .ThenInclude(pa => pa.ElementAnnotations)
-                            .ThenInclude(e => e.BoundingBox)
-            .Include(d => d.Pages)
-                .ThenInclude(p => p.SectionAnnotations)
-                    .ThenInclude(s => s.PairAnnotations)
-                        .ThenInclude(pa => pa.ElementAnnotations)
-                            .ThenInclude(e => e.Symbol)
+                .ThenInclude(p => p.Annotations)
+                    .ThenInclude(a => a.Caption)
             .FirstOrDefaultAsync(d => d.Id == documentId, cancellationToken)
             ?? throw new InvalidOperationException($"Document {documentId} not found.");
 
@@ -133,28 +122,22 @@ public class ExportService : IExportService
                 ImageExtension = ExtensionFromContentType(blobMeta?.ContentType),
             };
 
-            foreach (var section in page.SectionAnnotations)
+            foreach (var ann in page.Annotations)
             {
-                foreach (var pair in section.PairAnnotations)
+                if (ann.BoundingBox == null) continue;
+                var name = ann.Content
+                           ?? ann.Caption?.Name
+                           ?? ann.Type.ToString();
+                ep.Annotations.Add(new ExportAnnotation
                 {
-                    foreach (var element in pair.ElementAnnotations)
-                    {
-                        if (element.BoundingBox == null) continue;
-                        var name = element.Symbol?.Code
-                                   ?? element.Content
-                                   ?? element.Type.ToString();
-                        ep.Annotations.Add(new ExportAnnotation
-                        {
-                            PageId = page.Id,
-                            X = element.BoundingBox.X,
-                            Y = element.BoundingBox.Y,
-                            Width = element.BoundingBox.Width,
-                            Height = element.BoundingBox.Height,
-                            CategoryName = name,
-                            CategoryId = NextCategoryId(name),
-                        });
-                    }
-                }
+                    PageId = page.Id,
+                    X = ann.BoundingBox.X,
+                    Y = ann.BoundingBox.Y,
+                    Width = ann.BoundingBox.Width,
+                    Height = ann.BoundingBox.Height,
+                    CategoryName = name,
+                    CategoryId = NextCategoryId(name),
+                });
             }
 
             pages.Add(ep);

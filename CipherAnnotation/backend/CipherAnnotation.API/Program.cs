@@ -34,7 +34,6 @@ builder.Services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
 // Register repositories
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IDocumentRepository, DocumentRepository>();
-builder.Services.AddScoped<ISymbolRepository, SymbolRepository>();
 
 // Register services
 builder.Services.AddScoped<IAuthService, AuthService>();
