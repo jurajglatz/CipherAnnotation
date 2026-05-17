@@ -182,6 +182,10 @@ public class AnnotationService : IAnnotationService
                 ann.ParentId = null;
             }
         }
+        else if (req.ClearParent)
+        {
+            ann.ParentId = null;
+        }
 
         if (req.CaptionId is { } cid)
         {
@@ -653,7 +657,7 @@ public class AnnotationService : IAnnotationService
         return false;
     }
 
-    private static bool ValidateTypeFields(AnnotationType type, string? transcription, Guid? transcriptionRefId, out string error)
+    internal static bool ValidateTypeFields(AnnotationType type, string? transcription, Guid? transcriptionRefId, out string error)
     {
         error = "";
         return type switch

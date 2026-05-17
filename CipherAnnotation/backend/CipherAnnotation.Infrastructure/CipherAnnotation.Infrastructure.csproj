@@ -19,4 +19,7 @@
   <ItemGroup>
     <ProjectReference Include="..\CipherAnnotation.Core\CipherAnnotation.Core.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="CipherAnnotation.Tests" />
+  </ItemGroup>
 </Project>
