@@ -126,20 +126,19 @@ public class DocumentService : IDocumentService
             pageNumber++;
         }
 
-        await _documentRepository.SaveChangesAsync(ct);
-
         var seedNames = new[] { "Section", "Pair", "Element" };
         var now = DateTime.UtcNow;
         foreach (var (name, idx) in seedNames.Select((n, i) => (n, i)))
         {
-            _dbContext.Captions.Add(new Caption
+            document.Captions.Add(new Caption
             {
                 DocumentId = document.Id,
                 Name = name,
                 CreatedAt = now.AddMilliseconds(idx),
             });
         }
-        await _dbContext.SaveChangesAsync(ct);
+
+        await _documentRepository.SaveChangesAsync(ct);
 
         _logger.LogInformation("Document {DocumentId} created by user {UserId} with {PageCount} pages.",
             document.Id, ownerId, pageNumber - 1);
