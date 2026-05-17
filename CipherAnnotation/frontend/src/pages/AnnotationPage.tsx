@@ -15,58 +15,34 @@ import {
   PropertiesPanel,
   Toolbar,
   PreprocessPanel,
-  PreprocessOperation,
 } from '@/components/annotation';
-import { findDeepestContainer, isDescendantOf } from '@/components/annotation/AnnotationCanvas';
-import { pageService, annotationService, documentService } from '@/services';
-import { useAnnotations, useCaptions, useTour } from '@/hooks';
+import { findDeepestContainer, isDescendantOf } from '@/components/annotation/utils/geometry';
+import { pageService, annotationService } from '@/services';
 import {
-  Page,
-  Annotation,
-  BoundingBox,
-  PreprocessHistoryEntry,
-  MyPermission,
-} from '@/types';
+  useAnnotations,
+  useCaptions,
+  useTour,
+  useAnnotationHistory,
+  usePreprocess,
+  useAnnotationKeyboardShortcuts,
+  useDocumentPermission,
+} from '@/hooks';
+import { Page, Annotation, BoundingBox } from '@/types';
 import { CreateAnnotationData, UpdateAnnotationData } from '@/services/annotationService';
-
-interface HistoryCommand {
-  undo: () => Promise<void>;
-  redo: () => Promise<void>;
-}
 
 type ToolType = 'select' | 'annotation';
 
 export const AnnotationPage: React.FC = () => {
-  const { documentId, pageId } = useParams<{
-    documentId: string;
-    pageId: string;
-  }>();
+  const { documentId, pageId } = useParams<{ documentId: string; pageId: string }>();
   const navigate = useNavigate();
   useTour('annotation');
+
+  const { readOnly } = useDocumentPermission(documentId);
 
   const [page, setPage] = useState<Page | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [pageCount, setPageCount] = useState(0);
   const [pageList, setPageList] = useState<Page[]>([]);
-  const [myPermission, setMyPermission] = useState<MyPermission>('Read');
-  const canEdit = myPermission === 'Owner' || myPermission === 'Edit';
-  const readOnly = !canEdit;
-
-  useEffect(() => {
-    if (!documentId) return;
-    let cancelled = false;
-    documentService
-      .getDocument(documentId)
-      .then((doc) => {
-        if (!cancelled) setMyPermission(doc.myPermission);
-      })
-      .catch(() => {
-        if (!cancelled) setMyPermission('Read');
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [documentId]);
 
   const {
     annotations,
@@ -102,20 +78,16 @@ export const AnnotationPage: React.FC = () => {
     annotationsRef.current = annotations;
   }, [annotations]);
 
-  // Id remap for re-created annotations across undo/redo.
-  const idMap = useRef<Map<string, string>>(new Map());
-  const resolveId = useCallback((id: string): string => {
-    let current = id;
-    const seen = new Set<string>();
-    while (idMap.current.has(current) && !seen.has(current)) {
-      seen.add(current);
-      current = idMap.current.get(current)!;
-    }
-    return current;
-  }, []);
-  const remapId = useCallback((oldId: string, newId: string) => {
-    if (oldId !== newId) idMap.current.set(oldId, newId);
-  }, []);
+  const {
+    canUndo,
+    canRedo,
+    pushCommand,
+    runInBatch,
+    handleUndo: rawHandleUndo,
+    handleRedo: rawHandleRedo,
+    resolveId,
+    remapId,
+  } = useAnnotationHistory(pageId);
 
   // UI state
   const [currentTool, setCurrentTool] = useState<ToolType>('select');
@@ -124,19 +96,46 @@ export const AnnotationPage: React.FC = () => {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showProcessed, setShowProcessed] = useState(true);
   const [lockedIds, setLockedIds] = useState<Set<string>>(new Set());
-
-  // Preprocessing
-  const [isPreprocessOpen, setIsPreprocessOpen] = useState(false);
-  const [preprocessOps, setPreprocessOps] = useState<PreprocessOperation[]>([]);
-  const [isSavingPreprocess, setIsSavingPreprocess] = useState(false);
-  const [isResettingPreprocess, setIsResettingPreprocess] = useState(false);
-  const [isPreprocessHistoryBusy, setIsPreprocessHistoryBusy] = useState(false);
-  const [preprocessHistory, setPreprocessHistory] = useState<PreprocessHistoryEntry[]>([]);
-  const [applyAllPrompt, setApplyAllPrompt] = useState<{
-    ops: { name: string; value?: number }[];
+  const [livePreview, setLivePreview] = useState<{
+    id: string;
+    orientation?: number;
+    boundingBox?: BoundingBox;
   } | null>(null);
-  const [isApplyingToAll, setIsApplyingToAll] = useState(false);
   const [isAutoAnnotating, setIsAutoAnnotating] = useState(false);
+
+  const fetchPageData = useCallback(async () => {
+    if (!pageId || !documentId) return;
+    try {
+      setIsLoading(true);
+      const pageData = await pageService.getPage(documentId, pageId);
+      setPage(pageData);
+      const pages = await pageService.getPages(documentId);
+      setPageCount(pages.length);
+      setPageList(pages);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to load page');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [pageId, documentId]);
+
+  const preprocess = usePreprocess({
+    documentId,
+    pageId,
+    pageCount: pageList.length,
+    onPageRefetch: fetchPageData,
+  });
+
+  const handleTogglePreprocess = () => {
+    if (preprocess.isOpen) {
+      preprocess.close();
+    } else {
+      preprocess.open();
+      setSelectedAnnotation(null);
+      setSelectedIds(new Set());
+      setCurrentTool('select');
+    }
+  };
 
   const handleAutoAnnotate = useCallback(async () => {
     if (!pageId || isAutoAnnotating) return;
@@ -150,132 +149,11 @@ export const AnnotationPage: React.FC = () => {
         toast.success(`Auto-annotated ${created.length} region${created.length === 1 ? '' : 's'}`);
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Auto-annotation failed';
-      toast.error(message);
+      toast.error(error instanceof Error ? error.message : 'Auto-annotation failed');
     } finally {
       setIsAutoAnnotating(false);
     }
   }, [pageId, isAutoAnnotating, refetchAnnotations, refetchCaptions]);
-
-  const fetchPreprocessHistory = useCallback(async () => {
-    if (!documentId || !pageId) return;
-    try {
-      const state = await pageService.getPreprocessHistory(documentId, pageId);
-      setPreprocessHistory(state.entries);
-    } catch {
-      setPreprocessHistory([]);
-    }
-  }, [documentId, pageId]);
-
-  const handleSavePreprocess = async () => {
-    if (!documentId || !pageId || preprocessOps.length === 0) return;
-    try {
-      setIsSavingPreprocess(true);
-      const ops = preprocessOps.map((o) => ({
-        name: o.name,
-        ...(o.value !== undefined ? { value: o.value } : {}),
-      }));
-      await pageService.preprocessPage(documentId, pageId, ops);
-      toast.success('Preprocessing applied');
-      setPreprocessOps([]);
-      await Promise.all([fetchPageData(), fetchPreprocessHistory()]);
-      if (pageList.length > 1) {
-        setApplyAllPrompt({ ops });
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to apply preprocessing';
-      toast.error(message);
-    } finally {
-      setIsSavingPreprocess(false);
-    }
-  };
-
-  const handleConfirmApplyToAll = async () => {
-    if (!documentId || !applyAllPrompt) return;
-    try {
-      setIsApplyingToAll(true);
-      const result = await pageService.applyPreprocessToAllPages(
-        documentId,
-        applyAllPrompt.ops
-      );
-      if (result.failedCount > 0) {
-        toast.error(
-          `Applied to ${result.appliedCount} page(s), ${result.failedCount} failed`
-        );
-      } else {
-        toast.success(`Applied to ${result.appliedCount} page(s)`);
-      }
-      setApplyAllPrompt(null);
-      await Promise.all([fetchPageData(), fetchPreprocessHistory()]);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to apply to all pages';
-      toast.error(message);
-    } finally {
-      setIsApplyingToAll(false);
-    }
-  };
-
-  const handleUndoPreprocess = async () => {
-    if (!documentId || !pageId) return;
-    try {
-      setIsPreprocessHistoryBusy(true);
-      await pageService.undoPreprocess(documentId, pageId);
-      setPreprocessOps([]);
-      await Promise.all([fetchPageData(), fetchPreprocessHistory()]);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to undo';
-      toast.error(message);
-    } finally {
-      setIsPreprocessHistoryBusy(false);
-    }
-  };
-
-  const handleRedoPreprocess = async () => {
-    if (!documentId || !pageId) return;
-    try {
-      setIsPreprocessHistoryBusy(true);
-      await pageService.redoPreprocess(documentId, pageId);
-      setPreprocessOps([]);
-      await Promise.all([fetchPageData(), fetchPreprocessHistory()]);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to redo';
-      toast.error(message);
-    } finally {
-      setIsPreprocessHistoryBusy(false);
-    }
-  };
-
-  const handleResetPreprocess = async () => {
-    if (!documentId || !pageId) return;
-    try {
-      setIsResettingPreprocess(true);
-      await pageService.resetPreprocessing(documentId, pageId);
-      toast.success('Preprocessing reset');
-      setPreprocessOps([]);
-      await Promise.all([fetchPageData(), fetchPreprocessHistory()]);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to reset preprocessing';
-      toast.error(message);
-    } finally {
-      setIsResettingPreprocess(false);
-    }
-  };
-
-  const handleClosePreprocess = () => {
-    setIsPreprocessOpen(false);
-    setPreprocessOps([]);
-  };
-
-  const handleTogglePreprocess = () => {
-    if (isPreprocessOpen) {
-      handleClosePreprocess();
-    } else {
-      setIsPreprocessOpen(true);
-      setSelectedAnnotation(null);
-      setSelectedIds(new Set());
-      setCurrentTool('select');
-    }
-  };
 
   // Keep selectedAnnotation reference in sync with the latest annotations array.
   useEffect(() => {
@@ -291,7 +169,6 @@ export const AnnotationPage: React.FC = () => {
   const effectivelyLockedIds = React.useMemo(() => {
     const locked = new Set<string>();
     for (const a of annotations) {
-      // Walk up parent chain; if any ancestor (including self) is in lockedIds, mark.
       let cur: string | null = a.id;
       const visited = new Set<string>();
       while (cur && !visited.has(cur)) {
@@ -314,56 +191,6 @@ export const AnnotationPage: React.FC = () => {
       return next;
     });
   }, []);
-
-  // History (undo/redo)
-  const [history, setHistory] = useState<HistoryCommand[]>([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);
-  const historyIndexRef = useRef(-1);
-  useEffect(() => { historyIndexRef.current = historyIndex; }, [historyIndex]);
-  const isReplayingRef = useRef(false);
-
-  const batchingRef = useRef(false);
-  const batchCommandsRef = useRef<HistoryCommand[]>([]);
-
-  const pushCommand = useCallback((cmd: HistoryCommand) => {
-    if (isReplayingRef.current) return;
-    if (batchingRef.current) {
-      batchCommandsRef.current.push(cmd);
-      return;
-    }
-    setHistory((prev) => prev.slice(0, historyIndexRef.current + 1).concat(cmd));
-    setHistoryIndex((i) => i + 1);
-  }, []);
-
-  const runInBatch = useCallback(async (fn: () => Promise<void>) => {
-    if (batchingRef.current) { await fn(); return; }
-    batchingRef.current = true;
-    batchCommandsRef.current = [];
-    try {
-      await fn();
-    } finally {
-      const cmds = batchCommandsRef.current;
-      batchingRef.current = false;
-      batchCommandsRef.current = [];
-      if (cmds.length === 1) {
-        setHistory((prev) => prev.slice(0, historyIndexRef.current + 1).concat(cmds[0]));
-        setHistoryIndex((i) => i + 1);
-      } else if (cmds.length > 1) {
-        const combined: HistoryCommand = {
-          undo: async () => { for (let i = cmds.length - 1; i >= 0; i--) await cmds[i].undo(); },
-          redo: async () => { for (const c of cmds) await c.redo(); },
-        };
-        setHistory((prev) => prev.slice(0, historyIndexRef.current + 1).concat(combined));
-        setHistoryIndex((i) => i + 1);
-      }
-    }
-  }, []);
-
-  const [livePreview, setLivePreview] = useState<{
-    id: string;
-    orientation?: number;
-    boundingBox?: BoundingBox;
-  } | null>(null);
 
   // Selection
   const handleSelectAnnotation = useCallback(
@@ -397,7 +224,6 @@ export const AnnotationPage: React.FC = () => {
     [selectedAnnotation, byId]
   );
 
-  // Tree-panel select takes (id, opts) — wrap.
   const handleSelectFromTree = useCallback(
     (id: string, opts?: { toggle?: boolean }) => {
       const ann = byId.get(id);
@@ -411,26 +237,10 @@ export const AnnotationPage: React.FC = () => {
   useEffect(() => {
     if (pageId && documentId) {
       fetchPageData();
-      fetchPreprocessHistory();
+      preprocess.fetchHistory();
     }
-  }, [pageId, documentId, fetchPreprocessHistory]);
-
-  const fetchPageData = async () => {
-    if (!pageId || !documentId) return;
-    try {
-      setIsLoading(true);
-      const pageData = await pageService.getPage(documentId, pageId);
-      setPage(pageData);
-      const pages = await pageService.getPages(documentId);
-      setPageCount(pages.length);
-      setPageList(pages);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to load page';
-      toast.error(message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    // preprocess.fetchHistory is stable per ids; fetchPageData is stable.
+  }, [pageId, documentId, fetchPageData, preprocess.fetchHistory]);
 
   // Snapshot helper for re-creating an annotation (excluding cascaded descendants).
   const snapshotForRecreate = useCallback(
@@ -474,9 +284,7 @@ export const AnnotationPage: React.FC = () => {
 
     pushCommand({
       undo: async () => {
-        // Recreate from root downward so parentIds resolve.
         const newIdByOld = new Map<string, string>();
-        // Sort by depth so parents come first.
         const depth = (a: Annotation): number => {
           let d = 0;
           let cur: string | null = a.parentId;
@@ -536,30 +344,32 @@ export const AnnotationPage: React.FC = () => {
       setSelectedAnnotation(null);
       setSelectedIds(new Set());
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to delete annotation';
-      toast.error(message);
+      toast.error(error instanceof Error ? error.message : 'Failed to delete annotation');
     }
   }, [pageId, selectedIds, byId, trackedDelete, runInBatch]);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement).tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+  // Undo/redo wrappers that also clear selection (matches pre-refactor behavior).
+  const handleUndo = useCallback(async () => {
+    await rawHandleUndo();
+    setSelectedAnnotation(null);
+  }, [rawHandleUndo]);
 
-      if (e.key === 'Backspace' || e.key === 'Delete') {
-        if (readOnly) return;
-        e.preventDefault();
-        handleDeleteSelected();
-      } else if (e.key === 'Escape') {
-        setSelectedAnnotation(null);
-        setSelectedIds(new Set());
-        setLivePreview(null);
-      }
-    };
+  const handleRedo = useCallback(async () => {
+    await rawHandleRedo();
+    setSelectedAnnotation(null);
+  }, [rawHandleRedo]);
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleDeleteSelected, readOnly]);
+  useAnnotationKeyboardShortcuts({
+    onDelete: handleDeleteSelected,
+    onUndo: handleUndo,
+    onRedo: handleRedo,
+    onEscape: () => {
+      setSelectedAnnotation(null);
+      setSelectedIds(new Set());
+      setLivePreview(null);
+    },
+    readOnly,
+  });
 
   const handlePrevPage = () => {
     if (!page || !documentId) return;
@@ -573,10 +383,7 @@ export const AnnotationPage: React.FC = () => {
     if (next) navigate(`/documents/${documentId}/annotate/${next.id}`);
   };
 
-  // ---------------------------------------------------------------------------
-  // Unified create flow — single 'annotation' tool branch.
-  // Geometric containment: deepest container becomes parent.
-  // ---------------------------------------------------------------------------
+  // Unified create flow — geometric containment picks the parent.
   const handleCreateFromBox = useCallback(
     async (box: BoundingBox): Promise<Annotation | null> => {
       if (!pageId) return null;
@@ -594,8 +401,7 @@ export const AnnotationPage: React.FC = () => {
             await removeAnnotation(resolveId(originalId));
           },
           redo: async () => {
-            // Recompute parent against current state — original `parent`
-            // may have been deleted between undo and redo.
+            // Recompute parent — the original may have been deleted between undo and redo.
             const liveParent = findDeepestContainer(annotationsRef.current, box);
             const recreated = await createAnnotation({
               parentId: liveParent?.id ?? null,
@@ -609,8 +415,7 @@ export const AnnotationPage: React.FC = () => {
         toast.success('Annotation created');
         return created;
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to create annotation';
-        toast.error(message);
+        toast.error(error instanceof Error ? error.message : 'Failed to create annotation');
         return null;
       }
     },
@@ -628,7 +433,6 @@ export const AnnotationPage: React.FC = () => {
 
       try {
         await updateBoundingBox(realId, newBox);
-
         const candidates = annotationsRef.current.filter(
           (a) => a.id !== realId && !isDescendantOf(annotationsRef.current, a.id, realId)
         );
@@ -654,30 +458,25 @@ export const AnnotationPage: React.FC = () => {
           },
         });
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to update annotation';
-        toast.error(message);
+        toast.error(error instanceof Error ? error.message : 'Failed to update annotation');
       }
     },
     [updateBoundingBox, reparent, pushCommand, resolveId]
   );
 
   // Multi-move: same delta applied to each item; reparent each.
+  // Each item's reparent decision sees the *projected* post-move state of all
+  // moved items, not their stale pre-move boxes.
   const handleMultiBoundingBoxUpdated = useCallback(
     async (updates: Array<{ id: string; box: BoundingBox }>) => {
       if (updates.length === 0) return;
-      // Resolve real ids and compute the projected post-move snapshot ONCE,
-      // so each item's reparent decision sees the final state of the others
-      // (not the stale pre-move boxes).
       const resolved = updates.map((u) => ({ realId: resolveId(u.id), box: u.box }));
-      const movedIds = new Set(resolved.map((r) => r.realId));
       const projected = annotationsRef.current.map((a) => {
         const m = resolved.find((r) => r.realId === a.id);
         return m ? { ...a, boundingBox: m.box } : a;
       });
-      void movedIds;
       await runInBatch(async () => {
         for (const r of resolved) {
-          // Exclude self and any descendant of the item being placed.
           const safeCandidates = projected.filter(
             (a) => a.id !== r.realId && !isDescendantOf(projected, a.id, r.realId)
           );
@@ -696,19 +495,13 @@ export const AnnotationPage: React.FC = () => {
               undo: async () => {
                 await updateBoundingBox(resolveId(r.realId), oldBox);
                 if (reparented) {
-                  await reparent(
-                    resolveId(r.realId),
-                    oldParentId ? resolveId(oldParentId) : null
-                  );
+                  await reparent(resolveId(r.realId), oldParentId ? resolveId(oldParentId) : null);
                 }
               },
               redo: async () => {
                 await updateBoundingBox(resolveId(r.realId), r.box);
                 if (reparented) {
-                  await reparent(
-                    resolveId(r.realId),
-                    newParentId ? resolveId(newParentId) : null
-                  );
+                  await reparent(resolveId(r.realId), newParentId ? resolveId(newParentId) : null);
                 }
               },
             });
@@ -734,7 +527,6 @@ export const AnnotationPage: React.FC = () => {
         orientation: before.orientation,
         boundingBox: before.boundingBox,
       };
-      // Strip parentId/etc not allowed in PropertiesPanel payload — pass-through everything else.
       const afterData: UpdateAnnotationData = { ...data } as UpdateAnnotationData;
       try {
         await updateAnnotationRaw(realId, afterData);
@@ -748,8 +540,7 @@ export const AnnotationPage: React.FC = () => {
         });
         setLivePreview(null);
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to update annotation';
-        toast.error(message);
+        toast.error(error instanceof Error ? error.message : 'Failed to update annotation');
         throw error;
       }
     },
@@ -762,8 +553,7 @@ export const AnnotationPage: React.FC = () => {
       try {
         await createCaption(name);
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to add caption';
-        toast.error(message);
+        toast.error(error instanceof Error ? error.message : 'Failed to add caption');
         throw error;
       }
     },
@@ -775,8 +565,7 @@ export const AnnotationPage: React.FC = () => {
         await renameCaption(id, name);
         await refetchAnnotations();
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to rename caption';
-        toast.error(message);
+        toast.error(error instanceof Error ? error.message : 'Failed to rename caption');
         throw error;
       }
     },
@@ -787,15 +576,13 @@ export const AnnotationPage: React.FC = () => {
       try {
         await deleteCaption(id);
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to delete caption';
-        toast.error(message);
+        toast.error(error instanceof Error ? error.message : 'Failed to delete caption');
         throw error;
       }
     },
     [deleteCaption]
   );
 
-  // Single-id delete from tree
   const handleDeleteFromTree = useCallback(
     (id: string) => {
       void runInBatch(async () => { await trackedDelete(id); });
@@ -803,99 +590,37 @@ export const AnnotationPage: React.FC = () => {
     [trackedDelete, runInBatch]
   );
 
-  const handleZoomChange = (newZoom: number) => setZoom(newZoom);
-
-  const handleUndo = useCallback(async () => {
-    if (historyIndex < 0 || isReplayingRef.current) return;
-    const cmd = history[historyIndex];
-    if (!cmd) return;
-    isReplayingRef.current = true;
-    try {
-      await cmd.undo();
-      setHistoryIndex((i) => i - 1);
-      setSelectedAnnotation(null);
-    } catch (error) {
-      toast.error('Undo failed');
-    } finally {
-      isReplayingRef.current = false;
-    }
-  }, [history, historyIndex]);
-
-  const handleRedo = useCallback(async () => {
-    if (historyIndex >= history.length - 1 || isReplayingRef.current) return;
-    const cmd = history[historyIndex + 1];
-    if (!cmd) return;
-    isReplayingRef.current = true;
-    try {
-      await cmd.redo();
-      setHistoryIndex((i) => i + 1);
-      setSelectedAnnotation(null);
-    } catch (error) {
-      toast.error('Redo failed');
-    } finally {
-      isReplayingRef.current = false;
-    }
-  }, [history, historyIndex]);
-
-  const canUndo = historyIndex >= 0;
-  const canRedo = historyIndex < history.length - 1;
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement).tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-      const mod = e.metaKey || e.ctrlKey;
-      if (!mod) return;
-      if (e.key === 'z' && !e.shiftKey) {
-        e.preventDefault();
-        handleUndo();
-      } else if ((e.key === 'y') || (e.key === 'z' && e.shiftKey)) {
-        e.preventDefault();
-        handleRedo();
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [handleUndo, handleRedo]);
-
-  useEffect(() => {
-    setHistory([]);
-    setHistoryIndex(-1);
-    idMap.current.clear();
-  }, [pageId]);
-
   if (isLoading) return <LoadingSpinner />;
   if (!page) return <div className="text-center py-12 text-ink-900/60 font-serif italic text-lg">Page not found</div>;
 
   return (
     <div className="h-[calc(100vh-4rem)] flex flex-col bg-parchment-100">
       <div data-tour="annotation-toolbar">
-      <Toolbar
-        currentTool={readOnly ? 'select' : currentTool}
-        zoom={zoom}
-        onToolChange={setCurrentTool}
-        onZoomChange={handleZoomChange}
-        showProcessed={showProcessed}
-        onToggleImage={setShowProcessed}
-        canUndo={canUndo}
-        canRedo={canRedo}
-        onUndo={handleUndo}
-        onRedo={handleRedo}
-        pageNumber={page.pageNumber}
-        pageCount={pageCount}
-        onPrevPage={handlePrevPage}
-        onNextPage={handleNextPage}
-        documentId={documentId || ''}
-        isPreprocessOpen={isPreprocessOpen}
-        onTogglePreprocess={handleTogglePreprocess}
-        onAutoAnnotate={handleAutoAnnotate}
-        isAutoAnnotating={isAutoAnnotating}
-        readOnly={readOnly}
-      />
+        <Toolbar
+          currentTool={readOnly ? 'select' : currentTool}
+          zoom={zoom}
+          onToolChange={setCurrentTool}
+          onZoomChange={setZoom}
+          showProcessed={showProcessed}
+          onToggleImage={setShowProcessed}
+          canUndo={canUndo}
+          canRedo={canRedo}
+          onUndo={handleUndo}
+          onRedo={handleRedo}
+          pageNumber={page.pageNumber}
+          pageCount={pageCount}
+          onPrevPage={handlePrevPage}
+          onNextPage={handleNextPage}
+          documentId={documentId || ''}
+          isPreprocessOpen={preprocess.isOpen}
+          onTogglePreprocess={handleTogglePreprocess}
+          onAutoAnnotate={handleAutoAnnotate}
+          isAutoAnnotating={isAutoAnnotating}
+          readOnly={readOnly}
+        />
       </div>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Left sidebar: Annotation tree */}
         <div className="w-80 border-r border-sepia-600/20 bg-parchment-50 overflow-y-auto">
           <AnnotationTreePanel
             rootIds={rootIds}
@@ -911,51 +636,47 @@ export const AnnotationPage: React.FC = () => {
           />
         </div>
 
-        {/* Center: canvas */}
         <div data-tour="annotation-canvas" className="flex-1 bg-parchment-200/50 overflow-hidden">
-          {page && (
-            <AnnotationCanvas
-              page={page}
-              annotations={annotations}
-              captions={captions}
-              currentTool={readOnly ? 'select' : currentTool}
-              zoom={zoom}
-              selectedAnnotation={selectedAnnotation}
-              selectedIds={selectedIds}
-              onCreateFromBox={handleCreateFromBox}
-              onAnnotationSelected={(ann, additive) => {
-                handleSelectAnnotation(ann, additive);
-                setLivePreview(null);
-              }}
-              onDragEndAnnotation={handleDragEndAnnotation}
-              onMultiBoundingBoxUpdated={handleMultiBoundingBoxUpdated}
-              showProcessed={showProcessed}
-              livePreview={livePreview}
-              lockedIds={effectivelyLockedIds}
-              previewOps={isPreprocessOpen ? preprocessOps : undefined}
-              annotationsDisabled={isPreprocessOpen}
-              readOnly={readOnly}
-            />
-          )}
+          <AnnotationCanvas
+            page={page}
+            annotations={annotations}
+            captions={captions}
+            currentTool={readOnly ? 'select' : currentTool}
+            zoom={zoom}
+            selectedAnnotation={selectedAnnotation}
+            selectedIds={selectedIds}
+            onCreateFromBox={handleCreateFromBox}
+            onAnnotationSelected={(ann, additive) => {
+              handleSelectAnnotation(ann, additive);
+              setLivePreview(null);
+            }}
+            onDragEndAnnotation={handleDragEndAnnotation}
+            onMultiBoundingBoxUpdated={handleMultiBoundingBoxUpdated}
+            showProcessed={showProcessed}
+            livePreview={livePreview}
+            lockedIds={effectivelyLockedIds}
+            previewOps={preprocess.isOpen ? preprocess.ops : undefined}
+            annotationsDisabled={preprocess.isOpen}
+            readOnly={readOnly}
+          />
         </div>
 
-        {/* Right sidebar: Captions + Properties (or Preprocess panel) */}
         <div data-tour="annotation-side-panel" className="w-72 border-l border-sepia-600/20 bg-parchment-50 overflow-y-auto flex flex-col">
-          {isPreprocessOpen ? (
+          {preprocess.isOpen ? (
             <PreprocessPanel
-              operations={preprocessOps}
-              onOperationsChange={setPreprocessOps}
-              onSave={handleSavePreprocess}
-              onReset={handleResetPreprocess}
-              onClose={handleClosePreprocess}
-              isSaving={isSavingPreprocess}
-              isResetting={isResettingPreprocess}
-              onUndo={handleUndoPreprocess}
-              onRedo={handleRedoPreprocess}
+              operations={preprocess.ops}
+              onOperationsChange={preprocess.setOps}
+              onSave={preprocess.save}
+              onReset={preprocess.reset}
+              onClose={preprocess.close}
+              isSaving={preprocess.isSaving}
+              isResetting={preprocess.isResetting}
+              onUndo={preprocess.undo}
+              onRedo={preprocess.redo}
               canUndo={Boolean(page.canUndoPreprocess)}
               canRedo={Boolean(page.canRedoPreprocess)}
-              isHistoryBusy={isPreprocessHistoryBusy}
-              history={preprocessHistory}
+              isHistoryBusy={preprocess.isHistoryBusy}
+              history={preprocess.history}
             />
           ) : (
             <>
@@ -985,16 +706,14 @@ export const AnnotationPage: React.FC = () => {
       </div>
 
       <ConfirmDialog
-        isOpen={applyAllPrompt !== null}
-        onClose={() => {
-          if (!isApplyingToAll) setApplyAllPrompt(null);
-        }}
-        onConfirm={handleConfirmApplyToAll}
+        isOpen={preprocess.applyAllPrompt !== null}
+        onClose={preprocess.dismissApplyAll}
+        onConfirm={preprocess.confirmApplyToAll}
         title="Apply to all pages?"
         message={`Apply these preprocess operations to every page of this document (${pageList.length} pages)? The operations will be chained on top of each page's current state, and each page will get its own undo history entry.`}
         confirmText="Apply to all pages"
         cancelText="Only this page"
-        isLoading={isApplyingToAll}
+        isLoading={preprocess.isApplyingToAll}
       />
     </div>
   );
