@@ -24,6 +24,7 @@ import { LoadingSpinner, Modal, ConfirmDialog } from '@/components/shared';
 import PageThumbnail from '@/components/documents/PageThumbnail';
 import { ShareDocumentModal } from '@/components/documents/ShareDocumentModal';
 import { AddPagesModal } from '@/components/documents/AddPagesModal';
+import { useTour } from '@/hooks/useTour';
 
 type ViewMode = 'grid' | 'list';
 
@@ -32,6 +33,7 @@ export const DocumentDetailPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const isEditRoute = location.pathname.endsWith('/edit');
+  useTour('document-detail');
 
   // State
   const [document, setDocument] = useState<Document | null>(null);
@@ -355,6 +357,7 @@ export const DocumentDetailPage: React.FC = () => {
               )}
               {pages.length > 0 && (
                 <button
+                  data-tour="export-button"
                   onClick={() => setIsExportOpen(true)}
                   className="flex items-center gap-2 px-4 py-2 bg-transparent border-2 border-ink-900/20 hover:border-ink-900/60 text-ink-900 rounded-md transition-colors font-semibold"
                 >
@@ -433,6 +436,7 @@ export const DocumentDetailPage: React.FC = () => {
           <div className="flex gap-2 items-center">
             {document.myPermission === 'Owner' && (
               <button
+                data-tour="add-pages"
                 onClick={() => setIsAddPagesOpen(true)}
                 className="flex items-center gap-2 px-4 py-2 bg-ink-900 hover:bg-primary-700 text-parchment-50 rounded-md transition-colors font-semibold shadow-sm"
               >
@@ -530,9 +534,10 @@ export const DocumentDetailPage: React.FC = () => {
                 : 'space-y-2'
             }`}
           >
-            {pages.map((page) => (
+            {pages.map((page, index) => (
               <div
                 key={page.id}
+                data-tour={index === 0 ? 'page-thumb' : undefined}
                 onClick={() =>
                   navigate(`/documents/${documentId}/annotate/${page.id}`)
                 }
