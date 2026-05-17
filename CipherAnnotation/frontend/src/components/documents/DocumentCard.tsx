@@ -133,54 +133,62 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
           </p>
 
           {/* Action Buttons */}
-          <div className="flex gap-2 flex-wrap">
+          <div className="flex flex-col gap-2">
             <button
               onClick={() => onView(document)}
-              className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-ink-900 hover:bg-primary-700 text-parchment-50 rounded-md transition-colors text-xs font-semibold"
+              className="w-full flex items-center justify-center gap-2 px-3 py-2.5 bg-ink-900 hover:bg-primary-700 text-parchment-50 rounded-md transition-colors text-sm font-semibold"
               title="View document"
             >
-              <Eye className="w-4 h-4" />
-              <span className="hidden sm:inline">View</span>
+              <Eye className="w-5 h-5" />
+              <span>View</span>
             </button>
-            {onEdit && (
-            <button
-              onClick={() => onEdit(document)}
-              className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-transparent hover:bg-ink-900/5 text-ink-900 border border-sepia-600/30 hover:border-ink-900/60 rounded-md transition-colors text-xs font-semibold"
-              title="Edit document"
-            >
-              <Edit3 className="w-4 h-4" />
-              <span className="hidden sm:inline">Edit</span>
-            </button>
+
+            {(onEdit || onDuplicate || onShare) && (
+              <div className="flex gap-2">
+                {onEdit && (
+                  <button
+                    onClick={() => onEdit(document)}
+                    className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-transparent hover:bg-ink-900/5 text-ink-900 border border-sepia-600/30 hover:border-ink-900/60 rounded-md transition-colors text-xs font-semibold"
+                    title="Edit document"
+                  >
+                    <Edit3 className="w-4 h-4" />
+                    <span className="hidden sm:inline">Edit</span>
+                  </button>
+                )}
+                {onDuplicate && (
+                  <button
+                    onClick={() => onDuplicate(document)}
+                    className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-transparent hover:bg-ink-900/5 text-ink-900 border border-sepia-600/30 hover:border-ink-900/60 rounded-md transition-colors text-xs font-semibold"
+                    title="Duplicate document"
+                  >
+                    <Copy className="w-4 h-4" />
+                    <span className="hidden sm:inline">Duplicate</span>
+                  </button>
+                )}
+                {onShare && (
+                  <button
+                    onClick={() => onShare(document)}
+                    className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-transparent hover:bg-ink-900/5 text-ink-900 border border-sepia-600/30 hover:border-ink-900/60 rounded-md transition-colors text-xs font-semibold"
+                    title="Share document"
+                  >
+                    <Share2 className="w-4 h-4" />
+                    <span className="hidden sm:inline">Share</span>
+                  </button>
+                )}
+              </div>
             )}
-            {onDuplicate && (
-            <button
-              onClick={() => onDuplicate(document)}
-              className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-transparent hover:bg-ink-900/5 text-ink-900 border border-sepia-600/30 hover:border-ink-900/60 rounded-md transition-colors text-xs font-semibold"
-              title="Duplicate document"
-            >
-              <Copy className="w-4 h-4" />
-              <span className="hidden sm:inline">Duplicate</span>
-            </button>
-            )}
-            {onShare && (
-            <button
-              onClick={() => onShare(document)}
-              className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-transparent hover:bg-ink-900/5 text-ink-900 border border-sepia-600/30 hover:border-ink-900/60 rounded-md transition-colors text-xs font-semibold"
-              title="Share document"
-            >
-              <Share2 className="w-4 h-4" />
-              <span className="hidden sm:inline">Share</span>
-            </button>
-            )}
+
             {onDelete && (
-            <button
-              onClick={() => onDelete(document)}
-              className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-transparent hover:bg-cipher-red/10 text-cipher-red border border-cipher-red/30 hover:border-cipher-red/60 rounded-md transition-colors text-xs font-semibold"
-              title="Delete document"
-            >
-              <Trash2 className="w-4 h-4" />
-              <span className="hidden sm:inline">Delete</span>
-            </button>
+              <div className="flex justify-end">
+                <button
+                  onClick={() => onDelete(document)}
+                  className="flex items-center justify-center gap-1 px-3 py-1.5 bg-transparent hover:bg-cipher-red/10 text-cipher-red border border-cipher-red/30 hover:border-cipher-red/60 rounded-md transition-colors text-xs font-semibold"
+                  title="Delete document"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>Delete</span>
+                </button>
+              </div>
             )}
           </div>
         </div>
