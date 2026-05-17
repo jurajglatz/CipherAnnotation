@@ -98,6 +98,7 @@ export const AnnotationPage: React.FC = () => {
   const [showProcessed, setShowProcessed] = useState(true);
   const [lockedIds, setLockedIds] = useState<Set<string>>(new Set());
   const [hiddenCaptionIds, setHiddenCaptionIds] = useState<Set<string>>(new Set());
+  const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(new Set());
   const [livePreview, setLivePreview] = useState<{
     id: string;
     orientation?: number;
@@ -224,18 +225,29 @@ export const AnnotationPage: React.FC = () => {
     });
   }, []);
 
+  const toggleTypeVisibility = useCallback((type: string) => {
+    setHiddenTypes((prev) => {
+      const next = new Set(prev);
+      if (next.has(type)) next.delete(type);
+      else next.add(type);
+      return next;
+    });
+  }, []);
+
   const visibleAnnotations = React.useMemo(
     () =>
-      hiddenCaptionIds.size === 0
+      hiddenCaptionIds.size === 0 && hiddenTypes.size === 0
         ? annotations
-        : annotations.filter((a) => !hiddenCaptionIds.has(a.captionId)),
-    [annotations, hiddenCaptionIds]
+        : annotations.filter(
+            (a) => !hiddenCaptionIds.has(a.captionId) && !hiddenTypes.has(a.type)
+          ),
+    [annotations, hiddenCaptionIds, hiddenTypes]
   );
 
   // Tree structures filtered to visible captions. Children of hidden parents
   // are promoted to their nearest visible ancestor (or root) so they stay reachable.
   const { visibleRootIds, visibleById, visibleChildrenByParent } = React.useMemo(() => {
-    if (hiddenCaptionIds.size === 0) {
+    if (hiddenCaptionIds.size === 0 && hiddenTypes.size === 0) {
       return {
         visibleRootIds: rootIds,
         visibleById: byId,
@@ -265,7 +277,7 @@ export const AnnotationPage: React.FC = () => {
       visibleById: visibleByIdLocal,
       visibleChildrenByParent: childrenByParentLocal,
     };
-  }, [visibleAnnotations, hiddenCaptionIds, rootIds, byId, childrenByParent]);
+  }, [visibleAnnotations, hiddenCaptionIds, hiddenTypes, rootIds, byId, childrenByParent]);
 
   const toggleLock = useCallback((id: string) => {
     setLockedIds((prev) => {
@@ -960,6 +972,12 @@ export const AnnotationPage: React.FC = () => {
                 }}
                 hiddenCaptionIds={hiddenCaptionIds}
                 onToggleCaptionVisibility={toggleCaptionVisibility}
+                onSelectByType={(type) => {
+                  const ids = annotations.filter((a) => a.type === type).map((a) => a.id);
+                  setSelectedIds(new Set(ids));
+                }}
+                hiddenTypes={hiddenTypes}
+                onToggleTypeVisibility={toggleTypeVisibility}
                 readOnly={readOnly}
               />
               {selectedIds.size > 1 ? (
