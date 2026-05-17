@@ -69,4 +69,10 @@ public record DocumentDto
     /// Gets or sets the thumbnail URL (first page image) for the document.
     /// </summary>
     public string? ThumbnailUrl { get; init; }
+
+    /// <summary>
+    /// The current caller's effective permission on this document:
+    /// "Owner", "Edit", "Read", or "None".
+    /// </summary>
+    public required string MyPermission { get; init; }
 }

@@ -20,6 +20,8 @@ interface PropertiesPanelProps {
   documentId: string;
   onUpdate: (id: string, data: Partial<Omit<Annotation, 'id'>>) => Promise<void>;
   onDelete: (id: string) => void;
+  /** When true, all inputs and action buttons are disabled. */
+  readOnly?: boolean;
 }
 
 export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
@@ -28,6 +30,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   documentId,
   onUpdate,
   onDelete,
+  readOnly = false,
 }) => {
   const [draft, setDraft] = useState<Annotation | null>(annotation);
   const [textRefs, setTextRefs] = useState<DocumentAnnotationRef[]>([]);
@@ -108,7 +111,10 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <fieldset
+        disabled={readOnly}
+        className="flex-1 overflow-y-auto p-4 space-y-4 disabled:opacity-70 border-0 m-0 min-w-0"
+      >
         {/* Caption */}
         <div>
           <label className="block text-xs font-semibold uppercase tracking-wider text-sepia-700 mb-1">
@@ -274,27 +280,29 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
             {error}
           </div>
         )}
-      </div>
+      </fieldset>
 
       {/* Actions */}
-      <div className="border-t border-sepia-600/20 p-4 space-y-2">
-        <button
-          onClick={apply}
-          disabled={isSaving}
-          className="w-full flex items-center justify-center gap-2 bg-ink-900 hover:bg-primary-700 text-parchment-50 py-2.5 rounded-md font-medium shadow-sm hover:shadow-md transition-all disabled:opacity-50"
-        >
-          <Save className="w-4 h-4" />
-          {isSaving ? 'Saving...' : 'Apply Changes'}
-        </button>
+      {!readOnly && (
+        <div className="border-t border-sepia-600/20 p-4 space-y-2">
+          <button
+            onClick={apply}
+            disabled={isSaving}
+            className="w-full flex items-center justify-center gap-2 bg-ink-900 hover:bg-primary-700 text-parchment-50 py-2.5 rounded-md font-medium shadow-sm hover:shadow-md transition-all disabled:opacity-50"
+          >
+            <Save className="w-4 h-4" />
+            {isSaving ? 'Saving...' : 'Apply Changes'}
+          </button>
 
-        <button
-          onClick={() => onDelete(annotation.id)}
-          className="w-full flex items-center justify-center gap-2 border border-cipher-red/40 text-cipher-red hover:bg-cipher-red/10 py-2.5 rounded-md font-medium transition-all"
-        >
-          <Trash2 className="w-4 h-4" />
-          Delete
-        </button>
-      </div>
+          <button
+            onClick={() => onDelete(annotation.id)}
+            className="w-full flex items-center justify-center gap-2 border border-cipher-red/40 text-cipher-red hover:bg-cipher-red/10 py-2.5 rounded-md font-medium transition-all"
+          >
+            <Trash2 className="w-4 h-4" />
+            Delete
+          </button>
+        </div>
+      )}
     </div>
   );
 };

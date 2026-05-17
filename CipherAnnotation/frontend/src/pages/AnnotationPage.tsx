@@ -18,13 +18,14 @@ import {
   PreprocessOperation,
 } from '@/components/annotation';
 import { findDeepestContainer, isDescendantOf } from '@/components/annotation/AnnotationCanvas';
-import { pageService, annotationService } from '@/services';
+import { pageService, annotationService, documentService } from '@/services';
 import { useAnnotations, useCaptions } from '@/hooks';
 import {
   Page,
   Annotation,
   BoundingBox,
   PreprocessHistoryEntry,
+  MyPermission,
 } from '@/types';
 import { CreateAnnotationData, UpdateAnnotationData } from '@/services/annotationService';
 
@@ -46,6 +47,25 @@ export const AnnotationPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [pageCount, setPageCount] = useState(0);
   const [pageList, setPageList] = useState<Page[]>([]);
+  const [myPermission, setMyPermission] = useState<MyPermission>('Read');
+  const canEdit = myPermission === 'Owner' || myPermission === 'Edit';
+  const readOnly = !canEdit;
+
+  useEffect(() => {
+    if (!documentId) return;
+    let cancelled = false;
+    documentService
+      .getDocument(documentId)
+      .then((doc) => {
+        if (!cancelled) setMyPermission(doc.myPermission);
+      })
+      .catch(() => {
+        if (!cancelled) setMyPermission('Read');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [documentId]);
 
   const {
     annotations,
@@ -526,6 +546,7 @@ export const AnnotationPage: React.FC = () => {
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
       if (e.key === 'Backspace' || e.key === 'Delete') {
+        if (readOnly) return;
         e.preventDefault();
         handleDeleteSelected();
       } else if (e.key === 'Escape') {
@@ -537,7 +558,7 @@ export const AnnotationPage: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleDeleteSelected]);
+  }, [handleDeleteSelected, readOnly]);
 
   const handlePrevPage = () => {
     if (!page || !documentId) return;
@@ -848,7 +869,7 @@ export const AnnotationPage: React.FC = () => {
   return (
     <div className="h-[calc(100vh-4rem)] flex flex-col bg-parchment-100">
       <Toolbar
-        currentTool={currentTool}
+        currentTool={readOnly ? 'select' : currentTool}
         zoom={zoom}
         onToolChange={setCurrentTool}
         onZoomChange={handleZoomChange}
@@ -867,6 +888,7 @@ export const AnnotationPage: React.FC = () => {
         onTogglePreprocess={handleTogglePreprocess}
         onAutoAnnotate={handleAutoAnnotate}
         isAutoAnnotating={isAutoAnnotating}
+        readOnly={readOnly}
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -882,6 +904,7 @@ export const AnnotationPage: React.FC = () => {
             lockedIds={lockedIds}
             effectivelyLockedIds={effectivelyLockedIds}
             onToggleLock={toggleLock}
+            readOnly={readOnly}
           />
         </div>
 
@@ -892,7 +915,7 @@ export const AnnotationPage: React.FC = () => {
               page={page}
               annotations={annotations}
               captions={captions}
-              currentTool={currentTool}
+              currentTool={readOnly ? 'select' : currentTool}
               zoom={zoom}
               selectedAnnotation={selectedAnnotation}
               selectedIds={selectedIds}
@@ -908,6 +931,7 @@ export const AnnotationPage: React.FC = () => {
               lockedIds={effectivelyLockedIds}
               previewOps={isPreprocessOpen ? preprocessOps : undefined}
               annotationsDisabled={isPreprocessOpen}
+              readOnly={readOnly}
             />
           )}
         </div>
@@ -942,6 +966,7 @@ export const AnnotationPage: React.FC = () => {
                   const ids = annotations.filter((a) => a.captionId === captionId).map((a) => a.id);
                   setSelectedIds(new Set(ids));
                 }}
+                readOnly={readOnly}
               />
               <PropertiesPanel
                 annotation={selectedAnnotation}
@@ -949,6 +974,7 @@ export const AnnotationPage: React.FC = () => {
                 documentId={documentId || ''}
                 onUpdate={handleUpdateAnnotation}
                 onDelete={handleDeleteFromTree}
+                readOnly={readOnly}
               />
             </>
           )}

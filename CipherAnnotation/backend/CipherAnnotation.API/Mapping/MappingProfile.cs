@@ -67,7 +67,8 @@ public class MappingProfile : Profile
             .ForMember(dest => dest.OwnerName, opt => opt.MapFrom(src => src.Owner!.Name))
             .ForMember(dest => dest.CreatedAt, opt => opt.MapFrom(src => src.CreatedAt))
             .ForMember(dest => dest.UpdatedAt, opt => opt.MapFrom(src => src.UpdatedAt))
-            .ForMember(dest => dest.PageCount, opt => opt.MapFrom(src => src.Pages.Count));
+            .ForMember(dest => dest.PageCount, opt => opt.MapFrom(src => src.Pages.Count))
+            .ForMember(dest => dest.MyPermission, opt => opt.Ignore());
 
         // CreateDocumentRequest to Document
         CreateMap<CreateDocumentRequest, Document>()

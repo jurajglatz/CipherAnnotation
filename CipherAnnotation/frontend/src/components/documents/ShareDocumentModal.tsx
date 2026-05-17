@@ -3,11 +3,12 @@
  * Modal to share a document with other users
  */
 
-import React, { useState, useEffect } from 'react';
-import { X, Plus, Trash2, User } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Plus, Trash2, User } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { DocumentShare, PermissionType } from '@/types';
-import { documentService } from '@/services';
+import { documentService, userService } from '@/services';
+import type { UserSearchResult } from '@/services/userService';
 import { Modal, LoadingSpinner } from '@/components/shared';
 
 interface ShareDocumentModalProps {
@@ -28,12 +29,109 @@ export const ShareDocumentModal: React.FC<ShareDocumentModalProps> = ({
   const [isSharing, setIsSharing] = useState(false);
   const [isRemoving, setIsRemoving] = useState<string | null>(null);
 
+  const [suggestions, setSuggestions] = useState<UserSearchResult[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [highlightIndex, setHighlightIndex] = useState(-1);
+  const suppressNextSearchRef = useRef(false);
+  const searchAbortRef = useRef<AbortController | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
   // Fetch existing shares on modal open
   useEffect(() => {
     if (isOpen) {
       fetchShares();
+    } else {
+      setEmail('');
+      setSuggestions([]);
+      setShowSuggestions(false);
+      setHighlightIndex(-1);
     }
   }, [isOpen, documentId]);
+
+  // Debounced user search
+  useEffect(() => {
+    if (suppressNextSearchRef.current) {
+      suppressNextSearchRef.current = false;
+      return;
+    }
+
+    const trimmed = email.trim();
+    if (trimmed.length < 2) {
+      searchAbortRef.current?.abort();
+      setSuggestions([]);
+      setIsSearching(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    searchAbortRef.current?.abort();
+    searchAbortRef.current = controller;
+
+    const handle = window.setTimeout(async () => {
+      try {
+        setIsSearching(true);
+        const results = await userService.search(trimmed, 10, controller.signal);
+        if (!controller.signal.aborted) {
+          // Hide users we have already shared with
+          const sharedIds = new Set(shares.map((s) => s.userId));
+          setSuggestions(results.filter((u) => !sharedIds.has(u.id)));
+          setShowSuggestions(true);
+          setHighlightIndex(-1);
+        }
+      } catch (err) {
+        if (!controller.signal.aborted) {
+          setSuggestions([]);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsSearching(false);
+        }
+      }
+    }, 250);
+
+    return () => {
+      window.clearTimeout(handle);
+      controller.abort();
+    };
+  }, [email, shares]);
+
+  // Close suggestions on outside click
+  useEffect(() => {
+    if (!showSuggestions) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [showSuggestions]);
+
+  const selectSuggestion = (user: UserSearchResult) => {
+    suppressNextSearchRef.current = true;
+    setEmail(user.email);
+    setShowSuggestions(false);
+    setSuggestions([]);
+    setHighlightIndex(-1);
+  };
+
+  const handleEmailKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!showSuggestions || suggestions.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlightIndex((i) => (i + 1) % suggestions.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlightIndex((i) => (i <= 0 ? suggestions.length - 1 : i - 1));
+    } else if (e.key === 'Enter' && highlightIndex >= 0) {
+      e.preventDefault();
+      selectSuggestion(suggestions[highlightIndex]);
+    } else if (e.key === 'Escape') {
+      setShowSuggestions(false);
+    }
+  };
 
   const fetchShares = async () => {
     try {
@@ -115,19 +213,65 @@ export const ShareDocumentModal: React.FC<ShareDocumentModalProps> = ({
           </h3>
 
           <div className="space-y-3">
-            {/* Email Input */}
-            <div>
+            {/* Email Input + autocomplete */}
+            <div ref={containerRef} className="relative">
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Email Address
+                Name or Email
               </label>
               <input
-                type="email"
+                type="text"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="user@example.com"
+                onFocus={() => {
+                  if (suggestions.length > 0) setShowSuggestions(true);
+                }}
+                onKeyDown={handleEmailKeyDown}
+                placeholder="Start typing a name or email…"
+                autoComplete="off"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 disabled={isSharing}
               />
+
+              {showSuggestions && email.trim().length >= 2 && (
+                <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                  {isSearching && suggestions.length === 0 ? (
+                    <div className="px-3 py-2 text-sm text-gray-500">Searching…</div>
+                  ) : suggestions.length === 0 ? (
+                    <div className="px-3 py-2 text-sm text-gray-500">No matching users</div>
+                  ) : (
+                    suggestions.map((u, idx) => (
+                      <button
+                        type="button"
+                        key={u.id}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          selectSuggestion(u);
+                        }}
+                        onMouseEnter={() => setHighlightIndex(idx)}
+                        className={`w-full text-left px-3 py-2 flex items-center gap-3 ${
+                          idx === highlightIndex ? 'bg-blue-50' : 'hover:bg-gray-50'
+                        }`}
+                      >
+                        {u.avatarUri ? (
+                          <img
+                            src={u.avatarUri}
+                            alt=""
+                            className="w-8 h-8 rounded-full object-cover flex-shrink-0"
+                          />
+                        ) : (
+                          <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0">
+                            <User className="w-4 h-4 text-gray-500" />
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-gray-900 truncate">{u.name}</p>
+                          <p className="text-xs text-gray-500 truncate">{u.email}</p>
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Permission Select */}

@@ -35,4 +35,33 @@ public class UserRepository : GenericRepository<User>, IUserRepository
             .Include(u => u.OwnedDocuments)
             .FirstOrDefaultAsync(u => u.Email.ToLower() == email.ToLower(), cancellationToken);
     }
+
+    /// <inheritdoc />
+    public async Task<IEnumerable<User>> SearchAsync(
+        string query,
+        int limit,
+        Guid? excludeUserId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return [];
+        }
+
+        var normalized = query.Trim().ToLower();
+        var q = _dbSet.AsNoTracking()
+            .Where(u =>
+                u.Email.ToLower().Contains(normalized) ||
+                u.Name.ToLower().Contains(normalized));
+
+        if (excludeUserId.HasValue)
+        {
+            q = q.Where(u => u.Id != excludeUserId.Value);
+        }
+
+        return await q
+            .OrderBy(u => u.Name)
+            .Take(limit)
+            .ToListAsync(cancellationToken);
+    }
 }

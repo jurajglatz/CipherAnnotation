@@ -59,7 +59,7 @@ public class AnnotationsController : ControllerBase
     [HttpPost("api/pages/{pageId:guid}/annotations")]
     public async Task<ActionResult<AnnotationDto>> Create(Guid pageId, CreateAnnotationRequest req)
     {
-        if (!await UserCanAccessPage(pageId)) return Forbid();
+        if (!await UserCanEditPage(pageId)) return Forbid();
 
         if (!Enum.TryParse<AnnotationType>(req.Type, ignoreCase: false, out var type))
             return BadRequest(new { message = $"Invalid type \"{req.Type}\"." });
@@ -152,7 +152,7 @@ public class AnnotationsController : ControllerBase
     [HttpPut("api/pages/{pageId:guid}/annotations/{id:guid}")]
     public async Task<ActionResult<AnnotationDto>> Update(Guid pageId, Guid id, UpdateAnnotationRequest req)
     {
-        if (!await UserCanAccessPage(pageId)) return Forbid();
+        if (!await UserCanEditPage(pageId)) return Forbid();
 
         var ann = await _db.Annotations
             .Include(a => a.BoundingBox)
@@ -260,7 +260,7 @@ public class AnnotationsController : ControllerBase
     [HttpDelete("api/pages/{pageId:guid}/annotations/{id:guid}")]
     public async Task<IActionResult> Delete(Guid pageId, Guid id)
     {
-        if (!await UserCanAccessPage(pageId)) return Forbid();
+        if (!await UserCanEditPage(pageId)) return Forbid();
 
         var ann = await _db.Annotations.FirstOrDefaultAsync(a => a.Id == id && a.PageId == pageId);
         if (ann is null) return NotFound();
@@ -273,7 +273,7 @@ public class AnnotationsController : ControllerBase
     [HttpPut("api/pages/{pageId:guid}/annotations/boundingboxes/{id:guid}")]
     public async Task<ActionResult<BoundingBoxDto>> UpdateBoundingBox(Guid pageId, Guid id, BoundingBoxDto req)
     {
-        if (!await UserCanAccessPage(pageId)) return Forbid();
+        if (!await UserCanEditPage(pageId)) return Forbid();
 
         var ann = await _db.Annotations
             .Include(a => a.BoundingBox)
@@ -329,7 +329,7 @@ public class AnnotationsController : ControllerBase
     [HttpPost("api/pages/{pageId:guid}/auto-annotate")]
     public async Task<ActionResult<IEnumerable<AnnotationDto>>> AutoAnnotate(Guid pageId, CancellationToken ct)
     {
-        if (!await UserCanAccessPage(pageId)) return Forbid();
+        if (!await UserCanEditPage(pageId)) return Forbid();
 
         var page = await _db.Pages
             .Include(p => p.Document)
@@ -637,6 +637,15 @@ public class AnnotationsController : ControllerBase
             (p.Document!.OwnerId == userId
              || p.Document.Visibility == Visibility.Public
              || p.Document.Shares.Any(s => s.UserId == userId)));
+    }
+
+    private async Task<bool> UserCanEditPage(Guid pageId)
+    {
+        var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        return await _db.Pages.AnyAsync(p =>
+            p.Id == pageId &&
+            (p.Document!.OwnerId == userId
+             || p.Document.Shares.Any(s => s.UserId == userId && s.Permission == PermissionType.Edit)));
     }
 
     private async Task<bool> UserCanAccessDocument(Guid documentId)

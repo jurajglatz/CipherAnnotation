@@ -18,6 +18,8 @@ interface CaptionsPanelProps {
   onDelete: (id: string) => Promise<void>;
   /** Select all annotations on the current page that use this caption. */
   onSelectByCaption?: (captionId: string) => void;
+  /** When true, disables add/rename/delete (used for read-only shares). */
+  readOnly?: boolean;
 }
 
 export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
@@ -27,6 +29,7 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
   onRename,
   onDelete,
   onSelectByCaption,
+  readOnly = false,
 }) => {
   const [draftName, setDraftName] = useState('');
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -90,26 +93,28 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
       {/* Header */}
       <div className="p-4 border-b border-sepia-600/20">
         <h2 className="font-serif text-xl font-semibold text-ink-900 mb-3">Captions</h2>
-        <div className="flex items-center gap-2">
-          <input
-            type="text"
-            value={draftName}
-            onChange={(e) => setDraftName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleAdd();
-            }}
-            placeholder="Add caption…"
-            className="flex-1 px-3 py-2 text-sm bg-parchment-50 border border-sepia-600/30 text-ink-900 placeholder-sepia-600/60 rounded-md focus:outline-none focus:border-ink-900 focus:ring-1 focus:ring-ink-900 transition-colors"
-          />
-          <button
-            type="button"
-            onClick={handleAdd}
-            className="p-2 bg-ink-900 hover:bg-primary-700 text-parchment-50 rounded-md transition-colors"
-            title="Add caption"
-          >
-            <Plus className="w-4 h-4" />
-          </button>
-        </div>
+        {!readOnly && (
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={draftName}
+              onChange={(e) => setDraftName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleAdd();
+              }}
+              placeholder="Add caption…"
+              className="flex-1 px-3 py-2 text-sm bg-parchment-50 border border-sepia-600/30 text-ink-900 placeholder-sepia-600/60 rounded-md focus:outline-none focus:border-ink-900 focus:ring-1 focus:ring-ink-900 transition-colors"
+            />
+            <button
+              type="button"
+              onClick={handleAdd}
+              className="p-2 bg-ink-900 hover:bg-primary-700 text-parchment-50 rounded-md transition-colors"
+              title="Add caption"
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* List */}
@@ -173,31 +178,35 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
                           {pageCount} on page · {c.usageCount} total
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setRenamingId(c.id);
-                          setRenameDraft(c.name);
-                        }}
-                        className="p-1 hover:bg-parchment-200 rounded opacity-0 group-hover:opacity-100"
-                        title="Rename"
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); handleDelete(c); }}
-                        disabled={c.usageCount > 0}
-                        className={`p-1 rounded opacity-0 group-hover:opacity-100 ${
-                          c.usageCount > 0
-                            ? 'cursor-not-allowed text-gray-400'
-                            : 'hover:bg-cipher-red/10 text-cipher-red'
-                        }`}
-                        title={c.usageCount > 0 ? 'In use — cannot delete' : 'Delete'}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {!readOnly && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setRenamingId(c.id);
+                              setRenameDraft(c.name);
+                            }}
+                            className="p-1 hover:bg-parchment-200 rounded opacity-0 group-hover:opacity-100"
+                            title="Rename"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleDelete(c); }}
+                            disabled={c.usageCount > 0}
+                            className={`p-1 rounded opacity-0 group-hover:opacity-100 ${
+                              c.usageCount > 0
+                                ? 'cursor-not-allowed text-gray-400'
+                                : 'hover:bg-cipher-red/10 text-cipher-red'
+                            }`}
+                            title={c.usageCount > 0 ? 'In use — cannot delete' : 'Delete'}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </>
+                      )}
                     </>
                   )}
                 </li>

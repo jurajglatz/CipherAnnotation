@@ -63,6 +63,14 @@ class DocumentService {
   }
 
   /**
+   * Duplicate document (clones pages, captions, annotations).
+   */
+  async duplicateDocument(id: string): Promise<Document> {
+    const response = await api.post<Document>(`/documents/${id}/duplicate`);
+    return response.data;
+  }
+
+  /**
    * Share document with another user
    */
   async shareDocument(
@@ -73,7 +81,7 @@ class DocumentService {
     const response = await api.post<DocumentShare>(
       `/documents/${id}/share`,
       {
-        email,
+        userEmail: email,
         permission,
       }
     );

@@ -10,6 +10,8 @@
 export type UserRole = 'User' | 'Admin';
 export type PermissionType = 'Read' | 'Edit';
 export type Visibility = 'Private' | 'Public';
+/** Caller's effective permission on a document. */
+export type MyPermission = 'Owner' | 'Edit' | 'Read' | 'None';
 
 // ============================================================================
 // USER
@@ -62,6 +64,7 @@ export interface Document {
   updatedAt: string;
   pageCount: number;
   thumbnailUrl?: string;
+  myPermission: MyPermission;
 }
 
 export interface CreateDocumentRequest {
