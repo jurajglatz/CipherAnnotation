@@ -1,4 +1,4 @@
-using CipherAnnotation.API.Controllers;
+using CipherAnnotation.Infrastructure.Services.Annotations;
 
 namespace CipherAnnotation.Tests.Annotations;
 
@@ -21,7 +21,7 @@ public class NumberComputationTests
             new Annotation { Id = Guid.NewGuid(), PageId = pageB, CaptionId = capX, Type = AnnotationType.Text, Orientation = 0, CreatedAt = t0 },
         };
 
-        var numbers = AnnotationsController.ComputeCaptionNumbers(anns);
+        var numbers = AnnotationService.ComputeCaptionNumbers(anns);
 
         numbers[anns[1].Id].Should().Be(1);
         numbers[anns[0].Id].Should().Be(2);
@@ -39,7 +39,7 @@ public class NumberComputationTests
         var first = new Annotation { Id = Guid.NewGuid(), PageId = pageA, CaptionId = capX, Type = AnnotationType.Text, Orientation = 0, CreatedAt = t0 };
         var third = new Annotation { Id = Guid.NewGuid(), PageId = pageA, CaptionId = capX, Type = AnnotationType.Text, Orientation = 0, CreatedAt = t0.AddMinutes(2) };
 
-        var numbers = AnnotationsController.ComputeCaptionNumbers(new[] { first, third });
+        var numbers = AnnotationService.ComputeCaptionNumbers(new[] { first, third });
 
         numbers[first.Id].Should().Be(1);
         numbers[third.Id].Should().Be(2);
