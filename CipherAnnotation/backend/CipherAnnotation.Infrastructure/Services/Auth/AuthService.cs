@@ -166,12 +166,28 @@ public class AuthService : IAuthService
             ExpiresAt = DateTime.UtcNow.AddDays(GetRefreshLifetimeDays()),
             CreatedAt = DateTime.UtcNow,
         };
+
+        await using var tx = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+        // Atomically claim the rotation: only one concurrent caller wins.
+        var revokedAt = DateTime.UtcNow;
+        var claimed = await _dbContext.RefreshTokens
+            .Where(t => t.Id == stored.Id && t.RevokedAt == null)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(t => t.RevokedAt, revokedAt)
+                .SetProperty(t => t.ReplacedByTokenId, (Guid?)replacement.Id),
+                cancellationToken);
+
+        if (claimed == 0)
+        {
+            await tx.RollbackAsync(cancellationToken);
+            _logger.LogInformation("Refresh rotation lost race for user {UserId}.", stored.UserId);
+            return null;
+        }
+
         _dbContext.RefreshTokens.Add(replacement);
-
-        stored.RevokedAt = DateTime.UtcNow;
-        stored.ReplacedByTokenId = replacement.Id;
-
         await _dbContext.SaveChangesAsync(cancellationToken);
+        await tx.CommitAsync(cancellationToken);
 
         return new RefreshResult(accessToken, rawRefresh, expiresAt, user);
     }
