@@ -48,6 +48,7 @@ builder.Services.AddScoped<IAutoAnnotationService, AutoAnnotationService>();
 builder.Services.AddScoped<IDocumentService, DocumentService>();
 builder.Services.AddScoped<IPageService, PageService>();
 builder.Services.AddScoped<IAnnotationService, AnnotationService>();
+builder.Services.AddScoped<IExportOrchestrationService, ExportOrchestrationService>();
 
 // Allow larger multipart uploads (images can be several MB each, and documents may contain 100+ pages)
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
