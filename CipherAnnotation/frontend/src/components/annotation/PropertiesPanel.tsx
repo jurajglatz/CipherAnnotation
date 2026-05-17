@@ -4,8 +4,8 @@
  * Single form gated by `annotation.type` (Text / Cipher / Symbol).
  */
 
-import React, { useEffect, useState } from 'react';
-import { Trash2, Save } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Trash2 } from 'lucide-react';
 import {
   Annotation,
   AnnotationType,
@@ -35,10 +35,12 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   const [draft, setDraft] = useState<Annotation | null>(annotation);
   const [textRefs, setTextRefs] = useState<DocumentAnnotationRef[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
+  const lastSavedRef = useRef<Annotation | null>(annotation);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setDraft(annotation);
+    lastSavedRef.current = annotation;
     setError(null);
   }, [annotation?.id]);
 
@@ -52,6 +54,39 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
       .then(setTextRefs)
       .catch(() => setTextRefs([]));
   }, [annotation?.type, annotation?.pageId, documentId]);
+
+  useEffect(() => {
+    if (readOnly || !draft) return;
+    const last = lastSavedRef.current;
+    if (!last || last.id !== draft.id) return;
+    if (annotationsEqual(last, draft)) return;
+
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      const current = draft;
+      const payload: Partial<Omit<Annotation, 'id'>> = {
+        captionId: current.captionId,
+        type: current.type,
+        content: current.content,
+        transcription: current.type === 'Cipher' ? current.transcription : undefined,
+        transcriptionRefId:
+          current.type === 'Symbol' ? current.transcriptionRefId ?? null : null,
+        orientation: current.orientation,
+        boundingBox: current.boundingBox,
+      };
+      lastSavedRef.current = current;
+      onUpdate(current.id, payload)
+        .then(() => setError(null))
+        .catch((e: unknown) => {
+          setError(extractMessage(e));
+          lastSavedRef.current = last;
+        });
+    }, 400);
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [draft, readOnly, onUpdate]);
 
   if (!draft || !annotation) {
     return (
@@ -76,29 +111,6 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   const sortedCaptions = [...captions].sort((a, b) =>
     a.createdAt.localeCompare(b.createdAt)
   );
-
-  async function apply() {
-    if (!draft) return;
-    try {
-      setIsSaving(true);
-      const payload: Partial<Omit<Annotation, 'id'>> = {
-        captionId: draft.captionId,
-        type: draft.type,
-        content: draft.content,
-        transcription: draft.type === 'Cipher' ? draft.transcription : undefined,
-        transcriptionRefId:
-          draft.type === 'Symbol' ? draft.transcriptionRefId ?? null : null,
-        orientation: draft.orientation,
-        boundingBox: draft.boundingBox,
-      };
-      await onUpdate(draft.id, payload);
-      setError(null);
-    } catch (e: unknown) {
-      setError(extractMessage(e));
-    } finally {
-      setIsSaving(false);
-    }
-  }
 
   return (
     <div className="flex flex-col h-full">
@@ -284,16 +296,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
 
       {/* Actions */}
       {!readOnly && (
-        <div className="border-t border-sepia-600/20 p-4 space-y-2">
-          <button
-            onClick={apply}
-            disabled={isSaving}
-            className="w-full flex items-center justify-center gap-2 bg-ink-900 hover:bg-primary-700 text-parchment-50 py-2.5 rounded-md font-medium shadow-sm hover:shadow-md transition-all disabled:opacity-50"
-          >
-            <Save className="w-4 h-4" />
-            {isSaving ? 'Saving...' : 'Apply Changes'}
-          </button>
-
+        <div className="border-t border-sepia-600/20 p-4">
           <button
             onClick={() => onDelete(annotation.id)}
             className="w-full flex items-center justify-center gap-2 border border-cipher-red/40 text-cipher-red hover:bg-cipher-red/10 py-2.5 rounded-md font-medium transition-all"
@@ -306,6 +309,21 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     </div>
   );
 };
+
+function annotationsEqual(a: Annotation, b: Annotation): boolean {
+  return (
+    a.captionId === b.captionId &&
+    a.type === b.type &&
+    a.content === b.content &&
+    a.transcription === b.transcription &&
+    a.transcriptionRefId === b.transcriptionRefId &&
+    a.orientation === b.orientation &&
+    a.boundingBox.x === b.boundingBox.x &&
+    a.boundingBox.y === b.boundingBox.y &&
+    a.boundingBox.width === b.boundingBox.width &&
+    a.boundingBox.height === b.boundingBox.height
+  );
+}
 
 function extractMessage(e: unknown): string {
   if (typeof e === 'object' && e !== null && 'response' in e) {
