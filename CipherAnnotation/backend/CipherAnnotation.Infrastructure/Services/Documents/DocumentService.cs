@@ -320,8 +320,7 @@ public class DocumentService : IDocumentService
             return ServiceResult.NotFound("Share not found.");
         }
 
-        document.Shares.Remove(share);
-        _documentRepository.Update(document);
+        _dbContext.DocumentShares.Remove(share);
         await _documentRepository.SaveChangesAsync(ct);
 
         _logger.LogInformation("Share {ShareId} for document {DocumentId} removed by user {UserId}.",
