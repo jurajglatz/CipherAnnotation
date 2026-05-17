@@ -182,10 +182,6 @@ public class AnnotationService : IAnnotationService
                 ann.ParentId = null;
             }
         }
-        else if (req.ClearParent)
-        {
-            ann.ParentId = null;
-        }
 
         if (req.CaptionId is { } cid)
         {
