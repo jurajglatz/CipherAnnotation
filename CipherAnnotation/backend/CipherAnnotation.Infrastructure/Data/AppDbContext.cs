@@ -92,7 +92,7 @@ public class AppDbContext : DbContext
                 .HasMaxLength(256);
 
             entity.Property(e => e.CreatedAt)
-                .HasDefaultValue(DateTime.UtcNow);
+                .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
             entity.HasIndex(e => e.Email)
                 .IsUnique();
@@ -139,10 +139,10 @@ public class AppDbContext : DbContext
                 .HasMaxLength(50);
 
             entity.Property(e => e.CreatedAt)
-                .HasDefaultValue(DateTime.UtcNow);
+                .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
             entity.Property(e => e.UpdatedAt)
-                .HasDefaultValue(DateTime.UtcNow);
+                .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
             entity.HasOne(e => e.Owner)
                 .WithMany(u => u.OwnedDocuments)
@@ -181,7 +181,7 @@ public class AppDbContext : DbContext
                 .ValueGeneratedOnAdd();
 
             entity.Property(e => e.CreatedAt)
-                .HasDefaultValue(DateTime.UtcNow);
+                .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
             entity.HasOne(e => e.ImageBlob)
                 .WithMany()
@@ -228,7 +228,7 @@ public class AppDbContext : DbContext
                 .HasMaxLength(50);
 
             entity.Property(e => e.SharedAt)
-                .HasDefaultValue(DateTime.UtcNow);
+                .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
             entity.HasOne(e => e.Document)
                 .WithMany(d => d.Shares)
@@ -253,7 +253,7 @@ public class AppDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Id).ValueGeneratedOnAdd();
             entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
-            entity.Property(e => e.CreatedAt).HasDefaultValue(DateTime.UtcNow);
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP");
 
             entity.HasIndex(e => new { e.DocumentId, e.Name }).IsUnique();
             entity.HasIndex(e => new { e.DocumentId, e.CreatedAt });
@@ -272,7 +272,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.Content).HasMaxLength(2000);
             entity.Property(e => e.Transcription).HasMaxLength(2000);
 
-            entity.Property(e => e.CreatedAt).HasDefaultValue(DateTime.UtcNow);
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP");
 
             entity.HasOne(e => e.Page)
                 .WithMany(p => p.Annotations)
@@ -332,7 +332,7 @@ public class AppDbContext : DbContext
                 .HasColumnType("text");
 
             entity.Property(e => e.AppliedAt)
-                .HasDefaultValue(DateTime.UtcNow);
+                .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
             entity.HasOne(e => e.Page)
                 .WithMany(p => p.PreprocessHistory)
@@ -383,7 +383,7 @@ public class AppDbContext : DbContext
                 .HasMaxLength(64);
 
             entity.Property(e => e.CreatedAt)
-                .HasDefaultValue(DateTime.UtcNow);
+                .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
             entity.HasIndex(e => e.Sha256);
         });
@@ -398,7 +398,7 @@ public class AppDbContext : DbContext
                 .IsRequired()
                 .HasMaxLength(128);
 
-            entity.Property(e => e.CreatedAt).HasDefaultValue(DateTime.UtcNow);
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP");
 
             entity.HasOne(e => e.User)
                 .WithMany()
