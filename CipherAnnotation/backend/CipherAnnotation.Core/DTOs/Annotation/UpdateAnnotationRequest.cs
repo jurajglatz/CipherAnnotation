@@ -5,6 +5,14 @@ namespace CipherAnnotation.Core.DTOs.Annotation;
 public record UpdateAnnotationRequest
 {
     public Guid? ParentId { get; init; }
+
+    /// <summary>
+    /// Set to true to detach the annotation from its parent (make it a root).
+    /// Needed because <see cref="ParentId"/> cannot distinguish a JSON null
+    /// from an omitted field.
+    /// </summary>
+    public bool ClearParent { get; init; }
+
     public Guid? CaptionId { get; init; }
 
     [RegularExpression("^(Text|Cipher|Symbol)$")]

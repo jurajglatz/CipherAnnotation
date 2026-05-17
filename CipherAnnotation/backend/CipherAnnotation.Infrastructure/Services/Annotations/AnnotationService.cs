@@ -182,6 +182,10 @@ public class AnnotationService : IAnnotationService
                 ann.ParentId = null;
             }
         }
+        else if (req.ClearParent)
+        {
+            ann.ParentId = null;
+        }
 
         if (req.CaptionId is { } cid)
         {
@@ -397,26 +401,38 @@ public class AnnotationService : IAnnotationService
             return fresh;
         }
 
-        Caption ResolveCaptionFor(string className)
-        {
-            var lc = className.ToLowerInvariant();
-            var hit = captions.FirstOrDefault(c => c.Name.ToLowerInvariant() == lc)
-                   ?? captions.FirstOrDefault(c => lc.Contains(c.Name.ToLowerInvariant()))
-                   ?? captions.FirstOrDefault(c => c.Name.ToLowerInvariant().Contains(lc));
-            return hit ?? captions.First();
-        }
-
+        // The section/pair/element hierarchy below assumes these specific
+        // class names from the YOLO model. If the model is retrained with a
+        // different vocabulary, the structural nesting will no longer apply
+        // and each detection will simply land in a caption named after its
+        // own class.
         var sectionCaption = await GetOrCreateCaption("Section");
         var pairCaption = await GetOrCreateCaption("Pair");
         var elementCaption = await GetOrCreateCaption("Element");
 
+        // Pre-resolve a caption for every class the model emitted that isn't
+        // one of the hierarchy classes — exact (case-insensitive) match, and
+        // when missing, create a caption named after the class so detections
+        // never silently land in an unrelated bucket.
+        var captionByClass = new Dictionary<string, Caption>(StringComparer.OrdinalIgnoreCase);
+        foreach (var className in detections.Select(d => d.ClassName).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (string.Equals(className, "Section", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(className, "Pair", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(className, "Element", StringComparison.OrdinalIgnoreCase))
+                continue;
+            captionByClass[className] = await GetOrCreateCaption(className);
+        }
+
         var det = detections.Select(d =>
         {
-            var lc = d.ClassName.ToLowerInvariant();
-            Caption cap = lc.Contains("section") ? sectionCaption
-                        : lc.Contains("pair") ? pairCaption
-                        : lc.Contains("element") ? elementCaption
-                        : ResolveCaptionFor(d.ClassName);
+            Caption cap = d.ClassName switch
+            {
+                _ when string.Equals(d.ClassName, "Section", StringComparison.OrdinalIgnoreCase) => sectionCaption,
+                _ when string.Equals(d.ClassName, "Pair", StringComparison.OrdinalIgnoreCase) => pairCaption,
+                _ when string.Equals(d.ClassName, "Element", StringComparison.OrdinalIgnoreCase) => elementCaption,
+                _ => captionByClass[d.ClassName],
+            };
             return new
             {
                 Detection = d,
