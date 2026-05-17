@@ -12,6 +12,7 @@ public record ShareDocumentRequest
     /// </summary>
     [Required]
     [EmailAddress]
+    [StringLength(256)]
     public required string UserEmail { get; init; }
 
     /// <summary>

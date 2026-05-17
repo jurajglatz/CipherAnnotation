@@ -11,5 +11,6 @@ public record GoogleLoginRequest
     /// Gets or sets the Google ID token for authentication.
     /// </summary>
     [Required]
+    [StringLength(4096)]
     public required string IdToken { get; init; }
 }
