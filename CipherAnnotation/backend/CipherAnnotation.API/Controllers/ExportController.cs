@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using CipherAnnotation.API.Extensions;
+using CipherAnnotation.API.Validation;
 using CipherAnnotation.Core.Common;
 using CipherAnnotation.Core.DTOs.Document;
 using CipherAnnotation.Core.DTOs.Export;
@@ -16,10 +17,12 @@ namespace CipherAnnotation.API.Controllers;
 public class ExportController : ControllerBase
 {
     private readonly IExportOrchestrationService _export;
+    private readonly UploadValidator _uploadValidator;
 
-    public ExportController(IExportOrchestrationService export)
+    public ExportController(IExportOrchestrationService export, UploadValidator uploadValidator)
     {
         _export = export;
+        _uploadValidator = uploadValidator;
     }
 
     [HttpPost("coco")]
@@ -52,6 +55,10 @@ public class ExportController : ControllerBase
         [FromForm] IFormFile file,
         CancellationToken ct = default)
     {
+        if (file == null) return BadRequest(new { message = "File is required." });
+        var sizeError = _uploadValidator.ValidateSize(file);
+        if (sizeError != null) return BadRequest(new { message = sizeError });
+
         var upload = await ReadUploadAsync(file, ct);
         var result = await _export.ImportCocoAsync(documentId, IsAdmin(), upload, ct);
         return result.ToActionResult();
@@ -63,6 +70,12 @@ public class ExportController : ControllerBase
         [FromForm] List<IFormFile> files,
         CancellationToken ct = default)
     {
+        if (files != null && files.Count > 0)
+        {
+            var sizeError = _uploadValidator.ValidateSizeBatch(files);
+            if (sizeError != null) return BadRequest(new { message = sizeError });
+        }
+
         var uploads = await ReadUploadsAsync(files, ct);
         var result = await _export.ImportYoloAsync(documentId, IsAdmin(), uploads, ct);
         return result.ToActionResult();
