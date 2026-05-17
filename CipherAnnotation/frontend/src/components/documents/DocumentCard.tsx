@@ -143,12 +143,12 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
               <span>View</span>
             </button>
 
-            {(onEdit || onDuplicate || onShare) && (
+            {(onEdit || onDuplicate || onShare || onDelete) && (
               <div className="flex gap-2">
                 {onEdit && (
                   <button
                     onClick={() => onEdit(document)}
-                    className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-transparent hover:bg-ink-900/5 text-ink-900 border border-sepia-600/30 hover:border-ink-900/60 rounded-md transition-colors text-xs font-semibold"
+                    className="flex-1 min-w-0 flex items-center justify-center gap-1 px-2 py-1.5 bg-transparent hover:bg-ink-900/5 text-ink-900 border border-sepia-600/30 hover:border-ink-900/60 rounded-md transition-colors text-xs font-semibold"
                     title="Edit document"
                   >
                     <Edit3 className="w-4 h-4" />
@@ -158,7 +158,7 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
                 {onDuplicate && (
                   <button
                     onClick={() => onDuplicate(document)}
-                    className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-transparent hover:bg-ink-900/5 text-ink-900 border border-sepia-600/30 hover:border-ink-900/60 rounded-md transition-colors text-xs font-semibold"
+                    className="flex-1 min-w-0 flex items-center justify-center gap-1 px-2 py-1.5 bg-transparent hover:bg-ink-900/5 text-ink-900 border border-sepia-600/30 hover:border-ink-900/60 rounded-md transition-colors text-xs font-semibold"
                     title="Duplicate document"
                   >
                     <Copy className="w-4 h-4" />
@@ -168,26 +168,23 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
                 {onShare && (
                   <button
                     onClick={() => onShare(document)}
-                    className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-transparent hover:bg-ink-900/5 text-ink-900 border border-sepia-600/30 hover:border-ink-900/60 rounded-md transition-colors text-xs font-semibold"
+                    className="flex-1 min-w-0 flex items-center justify-center gap-1 px-2 py-1.5 bg-transparent hover:bg-ink-900/5 text-ink-900 border border-sepia-600/30 hover:border-ink-900/60 rounded-md transition-colors text-xs font-semibold"
                     title="Share document"
                   >
                     <Share2 className="w-4 h-4" />
                     <span className="hidden sm:inline">Share</span>
                   </button>
                 )}
-              </div>
-            )}
-
-            {onDelete && (
-              <div className="flex justify-end">
-                <button
-                  onClick={() => onDelete(document)}
-                  className="flex items-center justify-center gap-1 px-3 py-1.5 bg-transparent hover:bg-cipher-red/10 text-cipher-red border border-cipher-red/30 hover:border-cipher-red/60 rounded-md transition-colors text-xs font-semibold"
-                  title="Delete document"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  <span>Delete</span>
-                </button>
+                {onDelete && (
+                  <button
+                    onClick={() => onDelete(document)}
+                    className="flex-1 min-w-0 ml-auto flex items-center justify-center gap-1 px-2 py-1.5 bg-transparent hover:bg-cipher-red/10 text-cipher-red border border-cipher-red/30 hover:border-cipher-red/60 rounded-md transition-colors text-xs font-semibold"
+                    title="Delete document"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    <span className="hidden sm:inline">Delete</span>
+                  </button>
+                )}
               </div>
             )}
           </div>
