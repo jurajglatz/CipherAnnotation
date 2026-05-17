@@ -165,6 +165,7 @@ export const AnnotationPage: React.FC = () => {
 
   const confirmAutoAnnotateAll = useCallback(async () => {
     if (!documentId || isAutoAnnotatingAll) return;
+    setAutoAnnotateAllPrompt(false);
     try {
       setIsAutoAnnotatingAll(true);
       const result = await annotationService.autoAnnotateAll(documentId, {
@@ -182,7 +183,6 @@ export const AnnotationPage: React.FC = () => {
       toast.error(error instanceof Error ? error.message : 'Auto-annotate all pages failed');
     } finally {
       setIsAutoAnnotatingAll(false);
-      setAutoAnnotateAllPrompt(false);
     }
   }, [documentId, pageId, isAutoAnnotatingAll, refetchAnnotations, refetchCaptions]);
 
@@ -687,7 +687,7 @@ export const AnnotationPage: React.FC = () => {
           isPreprocessOpen={preprocess.isOpen}
           onTogglePreprocess={handleTogglePreprocess}
           onAutoAnnotate={handleAutoAnnotate}
-          isAutoAnnotating={isAutoAnnotating}
+          isAutoAnnotating={isAutoAnnotating || isAutoAnnotatingAll}
           readOnly={readOnly}
         />
       </div>
