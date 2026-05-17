@@ -1,58 +1,111 @@
 /**
- * Axios instance with JWT interceptors
+ * Axios instance with JWT interceptors.
+ * - Request: ensures the access token is fresh; if it's within 30s of expiry,
+ *   refreshes it first (single-flight).
+ * - Response: on a 401, attempts one refresh + retry. If the refresh fails too,
+ *   clears storage and redirects to /login.
  */
 
-import axios, { AxiosInstance, InternalAxiosRequestConfig } from 'axios';
+import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios';
+import authService from './authService';
 
-// Create axios instance with base configuration
+const REFRESH_LEEWAY_MS = 30_000;
+
 const api: AxiosInstance = axios.create({
   baseURL: '/api',
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  headers: { 'Content-Type': 'application/json' },
 });
 
-// Request interceptor: attach JWT token
-api.interceptors.request.use(
-  (config: InternalAxiosRequestConfig) => {
-    const token = localStorage.getItem('authToken');
+let refreshPromise: Promise<string> | null = null;
 
+async function ensureFreshAccessToken(): Promise<string | null> {
+  const access = authService.getAccessToken();
+  const expiresAt = authService.getAccessExpiresAtMs();
+
+  if (!access) return null;
+  if (expiresAt && Date.now() < expiresAt - REFRESH_LEEWAY_MS) return access;
+  if (!authService.getRefreshToken()) return access;
+
+  if (!refreshPromise) {
+    refreshPromise = authService
+      .refresh()
+      .then((r) => r.accessToken)
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+
+  try {
+    return await refreshPromise;
+  } catch {
+    return null;
+  }
+}
+
+api.interceptors.request.use(
+  async (config: InternalAxiosRequestConfig) => {
+    const token = await ensureFreshAccessToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
-
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error),
 );
 
-// Response interceptor: handle errors and auth failures
+interface RetryableConfig extends InternalAxiosRequestConfig {
+  _retried?: boolean;
+}
+
 api.interceptors.response.use(
-  (response) => {
-    return response;
-  },
-  (error) => {
-    // Handle 401 Unauthorized - redirect to login
-    if (error.response?.status === 401) {
-      localStorage.removeItem('authToken');
-      localStorage.removeItem('user');
-      window.location.href = '/login';
+  (response) => response,
+  async (error: AxiosError) => {
+    const status = error.response?.status;
+    const original = error.config as RetryableConfig | undefined;
+
+    if (status === 401 && original && !original._retried) {
+      original._retried = true;
+
+      if (!refreshPromise) {
+        refreshPromise = authService
+          .refresh()
+          .then((r) => r.accessToken)
+          .finally(() => {
+            refreshPromise = null;
+          });
+      }
+
+      try {
+        const newToken = await refreshPromise;
+        original.headers = original.headers ?? {};
+        original.headers.Authorization = `Bearer ${newToken}`;
+        return api.request(original);
+      } catch {
+        authService.clear();
+        if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+          window.location.href = '/login';
+        }
+        return Promise.reject(error);
+      }
     }
 
-    // Handle 403 Forbidden
-    if (error.response?.status === 403) {
-      console.error('Access forbidden:', error.response.data);
+    if (status === 401) {
+      authService.clear();
+      if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+        window.location.href = '/login';
+      }
     }
 
-    // Handle 500 Server Error
-    if (error.response?.status === 500) {
-      console.error('Server error:', error.response.data);
+    if (status === 403) {
+      console.error('Access forbidden:', error.response?.data);
+    }
+
+    if (status === 500) {
+      console.error('Server error:', error.response?.data);
     }
 
     return Promise.reject(error);
-  }
+  },
 );
 
 export default api;
