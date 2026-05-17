@@ -17,7 +17,7 @@ import {
   Toolbar,
   PreprocessPanel,
 } from '@/components/annotation';
-import { findDeepestContainer, isDescendantOf } from '@/components/annotation/utils/geometry';
+import { findDeepestContainer, isDescendantOf, overlapRatio } from '@/components/annotation/utils/geometry';
 import { pageService, annotationService } from '@/services';
 import {
   useAnnotations,
@@ -31,7 +31,7 @@ import {
 import { Page, Annotation, BoundingBox } from '@/types';
 import { CreateAnnotationData, UpdateAnnotationData } from '@/services/annotationService';
 
-type ToolType = 'select' | 'annotation';
+type ToolType = 'select' | 'annotation' | 'multiselect';
 
 export const AnnotationPage: React.FC = () => {
   const { documentId, pageId } = useParams<{ documentId: string; pageId: string }>();
@@ -97,6 +97,7 @@ export const AnnotationPage: React.FC = () => {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showProcessed, setShowProcessed] = useState(true);
   const [lockedIds, setLockedIds] = useState<Set<string>>(new Set());
+  const [hiddenCaptionIds, setHiddenCaptionIds] = useState<Set<string>>(new Set());
   const [livePreview, setLivePreview] = useState<{
     id: string;
     orientation?: number;
@@ -213,6 +214,58 @@ export const AnnotationPage: React.FC = () => {
     }
     return locked;
   }, [annotations, byId, lockedIds]);
+
+  const toggleCaptionVisibility = useCallback((captionId: string) => {
+    setHiddenCaptionIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(captionId)) next.delete(captionId);
+      else next.add(captionId);
+      return next;
+    });
+  }, []);
+
+  const visibleAnnotations = React.useMemo(
+    () =>
+      hiddenCaptionIds.size === 0
+        ? annotations
+        : annotations.filter((a) => !hiddenCaptionIds.has(a.captionId)),
+    [annotations, hiddenCaptionIds]
+  );
+
+  // Tree structures filtered to visible captions. Children of hidden parents
+  // are promoted to their nearest visible ancestor (or root) so they stay reachable.
+  const { visibleRootIds, visibleById, visibleChildrenByParent } = React.useMemo(() => {
+    if (hiddenCaptionIds.size === 0) {
+      return {
+        visibleRootIds: rootIds,
+        visibleById: byId,
+        visibleChildrenByParent: childrenByParent,
+      };
+    }
+    const visibleByIdLocal = new Map<string, Annotation>();
+    for (const a of visibleAnnotations) visibleByIdLocal.set(a.id, a);
+    const nearestVisibleAncestor = (parentId: string | null): string | null => {
+      let cur = parentId;
+      while (cur !== null) {
+        if (visibleByIdLocal.has(cur)) return cur;
+        cur = byId.get(cur)?.parentId ?? null;
+      }
+      return null;
+    };
+    const childrenByParentLocal = new Map<string | null, Annotation[]>();
+    for (const a of visibleAnnotations) {
+      const key = nearestVisibleAncestor(a.parentId ?? null);
+      const list = childrenByParentLocal.get(key) ?? [];
+      list.push(a);
+      childrenByParentLocal.set(key, list);
+    }
+    const roots = (childrenByParentLocal.get(null) ?? []).map((a) => a.id);
+    return {
+      visibleRootIds: roots,
+      visibleById: visibleByIdLocal,
+      visibleChildrenByParent: childrenByParentLocal,
+    };
+  }, [visibleAnnotations, hiddenCaptionIds, rootIds, byId, childrenByParent]);
 
   const toggleLock = useCallback((id: string) => {
     setLockedIds((prev) => {
@@ -422,7 +475,7 @@ export const AnnotationPage: React.FC = () => {
         const parent = findDeepestContainer(annotationsRef.current, box);
         const created = await createAnnotation({
           parentId: parent?.id ?? null,
-          type: 'Text',
+          type: 'Cipher',
           orientation: 0,
           boundingBox: box,
         });
@@ -436,7 +489,7 @@ export const AnnotationPage: React.FC = () => {
             const liveParent = findDeepestContainer(annotationsRef.current, box);
             const recreated = await createAnnotation({
               parentId: liveParent?.id ?? null,
-              type: 'Text',
+              type: 'Cipher',
               orientation: 0,
               boundingBox: box,
             });
@@ -474,17 +527,57 @@ export const AnnotationPage: React.FC = () => {
           await reparent(realId, newParentId);
         }
 
+        // A's children may no longer be geometrically contained by A after
+        // it moved. Re-evaluate each direct child against the post-move
+        // world and reparent any that A no longer contains.
+        const projected = annotationsRef.current.map((a) =>
+          a.id === realId ? { ...a, boundingBox: newBox, parentId: newParentId } : a
+        );
+        const directChildren = projected.filter((a) => a.parentId === realId);
+        const childReparents: Array<{
+          childId: string;
+          oldParentId: string | null;
+          newParentId: string | null;
+        }> = [];
+        for (const child of directChildren) {
+          const childCandidates = projected.filter(
+            (a) => a.id !== child.id && !isDescendantOf(projected, a.id, child.id)
+          );
+          const childNewParent = findDeepestContainer(childCandidates, child.boundingBox);
+          const childNewParentId = childNewParent?.id ?? null;
+          if (childNewParentId !== realId) {
+            await reparent(child.id, childNewParentId);
+            childReparents.push({
+              childId: child.id,
+              oldParentId: realId,
+              newParentId: childNewParentId,
+            });
+          }
+        }
+
         pushCommand({
           undo: async () => {
             await updateBoundingBox(resolveId(realId), oldBox);
             if (reparented) {
               await reparent(resolveId(realId), oldParentId ? resolveId(oldParentId) : null);
             }
+            for (const cr of childReparents) {
+              await reparent(
+                resolveId(cr.childId),
+                cr.oldParentId ? resolveId(cr.oldParentId) : null,
+              );
+            }
           },
           redo: async () => {
             await updateBoundingBox(resolveId(realId), newBox);
             if (reparented) {
               await reparent(resolveId(realId), newParentId ? resolveId(newParentId) : null);
+            }
+            for (const cr of childReparents) {
+              await reparent(
+                resolveId(cr.childId),
+                cr.newParentId ? resolveId(cr.newParentId) : null,
+              );
             }
           },
         });
@@ -506,6 +599,7 @@ export const AnnotationPage: React.FC = () => {
         const m = resolved.find((r) => r.realId === a.id);
         return m ? { ...a, boundingBox: m.box } : a;
       });
+      const movedIds = new Set(resolved.map((r) => r.realId));
       await runInBatch(async () => {
         for (const r of resolved) {
           const safeCandidates = projected.filter(
@@ -521,6 +615,33 @@ export const AnnotationPage: React.FC = () => {
           if (reparented) {
             await reparent(r.realId, newParentId);
           }
+
+          // Reparent non-moved direct children that this annotation no
+          // longer geometrically contains.
+          const directChildren = projected.filter(
+            (a) => a.parentId === r.realId && !movedIds.has(a.id)
+          );
+          const childReparents: Array<{
+            childId: string;
+            oldParentId: string | null;
+            newParentId: string | null;
+          }> = [];
+          for (const child of directChildren) {
+            const childCandidates = projected.filter(
+              (a) => a.id !== child.id && !isDescendantOf(projected, a.id, child.id)
+            );
+            const childNewParent = findDeepestContainer(childCandidates, child.boundingBox);
+            const childNewParentId = childNewParent?.id ?? null;
+            if (childNewParentId !== r.realId) {
+              await reparent(child.id, childNewParentId);
+              childReparents.push({
+                childId: child.id,
+                oldParentId: r.realId,
+                newParentId: childNewParentId,
+              });
+            }
+          }
+
           if (oldBox) {
             pushCommand({
               undo: async () => {
@@ -528,11 +649,23 @@ export const AnnotationPage: React.FC = () => {
                 if (reparented) {
                   await reparent(resolveId(r.realId), oldParentId ? resolveId(oldParentId) : null);
                 }
+                for (const cr of childReparents) {
+                  await reparent(
+                    resolveId(cr.childId),
+                    cr.oldParentId ? resolveId(cr.oldParentId) : null,
+                  );
+                }
               },
               redo: async () => {
                 await updateBoundingBox(resolveId(r.realId), r.box);
                 if (reparented) {
                   await reparent(resolveId(r.realId), newParentId ? resolveId(newParentId) : null);
+                }
+                for (const cr of childReparents) {
+                  await reparent(
+                    resolveId(cr.childId),
+                    cr.newParentId ? resolveId(cr.newParentId) : null,
+                  );
                 }
               },
             });
@@ -541,6 +674,28 @@ export const AnnotationPage: React.FC = () => {
       });
     },
     [resolveId, runInBatch, updateBoundingBox, reparent, pushCommand]
+  );
+
+  // Marquee select: pick all visible annotations whose box lies (mostly) inside
+  // the dragged rectangle, then switch back to the select/move tool.
+  const handleMultiSelectFromBox = useCallback(
+    (box: BoundingBox) => {
+      const hits = visibleAnnotations.filter(
+        (a) => overlapRatio(box, a.boundingBox) >= 0.9
+      );
+      if (hits.length === 0) {
+        setSelectedAnnotation(null);
+        setSelectedIds(new Set());
+        setCurrentTool('select');
+        toast('No annotations inside the selection', { icon: 'ℹ️' });
+        return;
+      }
+      const ids = new Set(hits.map((a) => a.id));
+      setSelectedIds(ids);
+      setSelectedAnnotation(hits[0]);
+      setCurrentTool('select');
+    },
+    [visibleAnnotations]
   );
 
   // Properties-panel update wrapper — also undoable.
@@ -611,6 +766,46 @@ export const AnnotationPage: React.FC = () => {
           }
         });
         toast.success(`Caption applied to ${ids.length} annotations`);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Failed to update annotations');
+        throw error;
+      }
+    },
+    [runInBatch, resolveId, updateAnnotationRaw, pushCommand]
+  );
+
+  // Bulk type reassignment for multi-selection. Same batch/undo shape as bulk caption.
+  const handleBulkUpdateType = useCallback(
+    async (ids: string[], type: Annotation['type']) => {
+      if (ids.length === 0) return;
+      try {
+        await runInBatch(async () => {
+          for (const id of ids) {
+            const realId = resolveId(id);
+            const before = annotationsRef.current.find((a) => a.id === realId);
+            if (!before || before.type === type) continue;
+            const beforeData: UpdateAnnotationData = {
+              captionId: before.captionId,
+              type: before.type,
+              content: before.content,
+              transcription: before.transcription,
+              transcriptionRefId: before.transcriptionRefId ?? null,
+              orientation: before.orientation,
+              boundingBox: before.boundingBox,
+            };
+            const afterData: UpdateAnnotationData = { ...beforeData, type };
+            await updateAnnotationRaw(realId, afterData);
+            pushCommand({
+              undo: async () => {
+                await updateAnnotationRaw(resolveId(realId), beforeData);
+              },
+              redo: async () => {
+                await updateAnnotationRaw(resolveId(realId), afterData);
+              },
+            });
+          }
+        });
+        toast.success(`Type applied to ${ids.length} annotations`);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'Failed to update annotations');
         throw error;
@@ -695,9 +890,9 @@ export const AnnotationPage: React.FC = () => {
       <div className="flex flex-1 overflow-hidden">
         <div className="w-80 border-r border-sepia-600/20 bg-parchment-50 overflow-y-auto">
           <AnnotationTreePanel
-            rootIds={rootIds}
-            byId={byId}
-            childrenByParent={childrenByParent}
+            rootIds={visibleRootIds}
+            byId={visibleById}
+            childrenByParent={visibleChildrenByParent}
             selectedIds={selectedIds}
             onSelect={handleSelectFromTree}
             onDelete={handleDeleteFromTree}
@@ -711,7 +906,7 @@ export const AnnotationPage: React.FC = () => {
         <div data-tour="annotation-canvas" className="flex-1 bg-parchment-200/50 overflow-hidden">
           <AnnotationCanvas
             page={page}
-            annotations={annotations}
+            annotations={visibleAnnotations}
             captions={captions}
             currentTool={readOnly ? 'select' : currentTool}
             zoom={zoom}
@@ -724,6 +919,7 @@ export const AnnotationPage: React.FC = () => {
             }}
             onDragEndAnnotation={handleDragEndAnnotation}
             onMultiBoundingBoxUpdated={handleMultiBoundingBoxUpdated}
+            onMultiSelectFromBox={handleMultiSelectFromBox}
             showProcessed={showProcessed}
             livePreview={livePreview}
             lockedIds={effectivelyLockedIds}
@@ -762,6 +958,8 @@ export const AnnotationPage: React.FC = () => {
                   const ids = annotations.filter((a) => a.captionId === captionId).map((a) => a.id);
                   setSelectedIds(new Set(ids));
                 }}
+                hiddenCaptionIds={hiddenCaptionIds}
+                onToggleCaptionVisibility={toggleCaptionVisibility}
                 readOnly={readOnly}
               />
               {selectedIds.size > 1 ? (
@@ -771,6 +969,7 @@ export const AnnotationPage: React.FC = () => {
                     .filter((a): a is Annotation => !!a)}
                   captions={captions}
                   onBulkUpdateCaption={handleBulkUpdateCaption}
+                  onBulkUpdateType={handleBulkUpdateType}
                   readOnly={readOnly}
                 />
               ) : (
