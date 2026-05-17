@@ -283,7 +283,7 @@ const AnnotationRow: React.FC<RowProps> = ({
             ? 'bg-primary-700/10 text-ink-900 border border-primary-700/30'
             : 'hover:bg-parchment-100 text-ink-900/80 border border-transparent'
         } ${lockedRowClass}`}
-        style={{ paddingLeft: 8 + depth * 16 }}
+        style={{ paddingLeft: 8 }}
         onClick={(e) =>
           onSelect(ann.id, { toggle: e.metaKey || e.ctrlKey || e.shiftKey })
         }
@@ -364,7 +364,9 @@ const AnnotationRow: React.FC<RowProps> = ({
       </div>
 
       {children.length > 0 && isExpanded(ann.id) && (
-        <ul className="space-y-1 mt-1">
+        <ul
+          className="space-y-1 mt-1 ml-3.5 pl-2 border-l-2 border-sepia-600/30"
+        >
           {children.map((c) => (
             <AnnotationRow
               key={c.id}
