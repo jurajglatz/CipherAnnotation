@@ -4,8 +4,7 @@
  * Currently supports bulk caption reassignment across mixed types.
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
-import { Save } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Annotation, Caption } from '@/types';
 
 interface MultiSelectPropertiesPanelProps {
@@ -33,11 +32,12 @@ export const MultiSelectPropertiesPanel: React.FC<MultiSelectPropertiesPanelProp
   }, [annotations]);
 
   const [captionId, setCaptionId] = useState<string>(commonCaptionId);
-  const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const lastAppliedRef = useRef<string>(commonCaptionId);
 
   useEffect(() => {
     setCaptionId(commonCaptionId);
+    lastAppliedRef.current = commonCaptionId;
     setError(null);
   }, [commonCaptionId, annotations.length]);
 
@@ -47,16 +47,17 @@ export const MultiSelectPropertiesPanel: React.FC<MultiSelectPropertiesPanelProp
     return counts;
   }, [annotations]);
 
-  async function apply() {
-    if (!captionId) return;
+  async function handleCaptionChange(newCaptionId: string) {
+    setCaptionId(newCaptionId);
+    if (!newCaptionId || newCaptionId === lastAppliedRef.current) return;
+    const previous = lastAppliedRef.current;
+    lastAppliedRef.current = newCaptionId;
     try {
-      setIsSaving(true);
-      await onBulkUpdateCaption(annotations.map((a) => a.id), captionId);
+      await onBulkUpdateCaption(annotations.map((a) => a.id), newCaptionId);
       setError(null);
     } catch (e: unknown) {
       setError(extractMessage(e));
-    } finally {
-      setIsSaving(false);
+      lastAppliedRef.current = previous;
     }
   }
 
@@ -84,7 +85,7 @@ export const MultiSelectPropertiesPanel: React.FC<MultiSelectPropertiesPanelProp
           </label>
           <select
             value={captionId}
-            onChange={(e) => setCaptionId(e.target.value)}
+            onChange={(e) => handleCaptionChange(e.target.value)}
             className="w-full px-3 py-2 bg-parchment-50 border border-sepia-600/30 rounded-md text-ink-900 focus:outline-none focus:ring-2 focus:ring-ink-900 focus:border-ink-900"
           >
             {!commonCaptionId && (
@@ -110,18 +111,6 @@ export const MultiSelectPropertiesPanel: React.FC<MultiSelectPropertiesPanelProp
         )}
       </fieldset>
 
-      {!readOnly && (
-        <div className="border-t border-sepia-600/20 p-4">
-          <button
-            onClick={apply}
-            disabled={isSaving || !captionId}
-            className="w-full flex items-center justify-center gap-2 bg-ink-900 hover:bg-primary-700 text-parchment-50 py-2.5 rounded-md font-medium shadow-sm hover:shadow-md transition-all disabled:opacity-50"
-          >
-            <Save className="w-4 h-4" />
-            {isSaving ? 'Applying...' : 'Apply Caption to All'}
-          </button>
-        </div>
-      )}
     </div>
   );
 };
