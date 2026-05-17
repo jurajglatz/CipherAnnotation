@@ -1,6 +1,6 @@
 /**
  * Auth Context
- * Manages authentication state and provides auth functions to the app
+ * Manages authentication state and provides auth functions to the app.
  */
 
 import React, { createContext, useCallback, useEffect, useState } from 'react';
@@ -9,21 +9,18 @@ import { User, LoginRequest, RegisterRequest } from '../types';
 
 export interface AuthContextType {
   user: User | null;
-  token: string | null;
+  accessToken: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
   login: (data: LoginRequest) => Promise<void>;
   register: (data: RegisterRequest) => Promise<void>;
   googleLogin: (idToken: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   clearError: () => void;
 }
 
-// Create context with undefined default
-export const AuthContext = createContext<AuthContextType | undefined>(
-  undefined
-);
+export const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 interface AuthProviderProps {
   children: React.ReactNode;
@@ -31,33 +28,24 @@ interface AuthProviderProps {
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Initialize auth state from storage on mount
   useEffect(() => {
-    const initializeAuth = async () => {
+    const initialize = async () => {
       try {
-        const storedToken = authService.getToken();
-        const storedUser = authService.getStoredUser();
+        const storedToken = authService.getAccessToken();
+        if (!storedToken) return;
 
-        if (storedToken) {
-          setToken(storedToken);
-
-          // Validate token by fetching current user
-          try {
-            const currentUser = await authService.getMe();
-            setUser(currentUser);
-            authService.saveUser(currentUser);
-          } catch (err) {
-            // Token is invalid, clear storage
-            authService.logout();
-            setToken(null);
-            setUser(null);
-          }
-        } else if (storedUser) {
-          // Have user but no token, clear user
+        setAccessToken(storedToken);
+        try {
+          const currentUser = await authService.getMe();
+          setUser(currentUser);
+          authService.saveUser(currentUser);
+        } catch {
+          authService.clear();
+          setAccessToken(null);
           setUser(null);
         }
       } catch (err) {
@@ -67,95 +55,78 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       }
     };
 
-    initializeAuth();
+    initialize();
   }, []);
 
-  // Login handler
+  const handleAuthResponse = (response: {
+    accessToken: string;
+    refreshToken: string;
+    accessTokenExpiresAt: string;
+    user: User;
+  }) => {
+    authService.saveAuth(response);
+    setAccessToken(response.accessToken);
+    setUser(response.user);
+  };
+
   const login = useCallback(async (data: LoginRequest) => {
     try {
       setError(null);
       setIsLoading(true);
-
       const response = await authService.login(data);
-
-      authService.saveToken(response.token);
-      authService.saveUser(response.user);
-
-      setToken(response.token);
-      setUser(response.user);
+      handleAuthResponse(response);
     } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : 'Login failed';
-      setError(errorMessage);
+      const msg = err instanceof Error ? err.message : 'Login failed';
+      setError(msg);
       throw err;
     } finally {
       setIsLoading(false);
     }
   }, []);
 
-  // Register handler
   const register = useCallback(async (data: RegisterRequest) => {
     try {
       setError(null);
       setIsLoading(true);
-
       const response = await authService.register(data);
-
-      authService.saveToken(response.token);
-      authService.saveUser(response.user);
-
-      setToken(response.token);
-      setUser(response.user);
+      handleAuthResponse(response);
     } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : 'Registration failed';
-      setError(errorMessage);
+      const msg = err instanceof Error ? err.message : 'Registration failed';
+      setError(msg);
       throw err;
     } finally {
       setIsLoading(false);
     }
   }, []);
 
-  // Google login handler
   const googleLogin = useCallback(async (idToken: string) => {
     try {
       setError(null);
       setIsLoading(true);
-
       const response = await authService.googleLogin(idToken);
-
-      authService.saveToken(response.token);
-      authService.saveUser(response.user);
-
-      setToken(response.token);
-      setUser(response.user);
+      handleAuthResponse(response);
     } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : 'Google login failed';
-      setError(errorMessage);
+      const msg = err instanceof Error ? err.message : 'Google login failed';
+      setError(msg);
       throw err;
     } finally {
       setIsLoading(false);
     }
   }, []);
 
-  // Logout handler
-  const logout = useCallback(() => {
-    authService.logout();
-    setToken(null);
+  const logout = useCallback(async () => {
+    await authService.logout();
+    setAccessToken(null);
     setUser(null);
     setError(null);
   }, []);
 
-  // Clear error
-  const clearError = useCallback(() => {
-    setError(null);
-  }, []);
+  const clearError = useCallback(() => setError(null), []);
 
   const value: AuthContextType = {
     user,
-    token,
-    isAuthenticated: !!token && !!user,
+    accessToken,
+    isAuthenticated: !!accessToken && !!user,
     isLoading,
     error,
     login,
@@ -165,11 +136,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     clearError,
   };
 
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
 export default AuthContext;

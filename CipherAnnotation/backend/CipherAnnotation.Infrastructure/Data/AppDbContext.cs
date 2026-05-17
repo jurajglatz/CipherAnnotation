@@ -63,6 +63,11 @@ public class AppDbContext : DbContext
     public DbSet<PreprocessHistoryEntry> PreprocessHistoryEntries { get; set; } = null!;
 
     /// <summary>
+    /// Gets or sets the RefreshTokens database set.
+    /// </summary>
+    public DbSet<RefreshToken> RefreshTokens { get; set; } = null!;
+
+    /// <summary>
     /// Configures the model using the Fluent API.
     /// </summary>
     /// <param name="modelBuilder">The model builder.</param>
@@ -381,6 +386,28 @@ public class AppDbContext : DbContext
                 .HasDefaultValue(DateTime.UtcNow);
 
             entity.HasIndex(e => e.Sha256);
+        });
+
+        // Configure RefreshToken entity
+        modelBuilder.Entity<RefreshToken>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+
+            entity.Property(e => e.TokenHash)
+                .IsRequired()
+                .HasMaxLength(128);
+
+            entity.Property(e => e.CreatedAt).HasDefaultValue(DateTime.UtcNow);
+
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .IsRequired()
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(e => e.TokenHash).IsUnique();
+            entity.HasIndex(e => e.UserId);
         });
     }
 }

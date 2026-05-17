@@ -1,17 +1,14 @@
 namespace CipherAnnotation.Core.DTOs.Auth;
 
-/// <summary>
-/// Response object containing authentication token and user information.
-/// </summary>
 public record AuthResponse
 {
-    /// <summary>
-    /// Gets or sets the JWT token for authenticated requests.
-    /// </summary>
-    public required string Token { get; init; }
-
-    /// <summary>
-    /// Gets or sets the authenticated user information.
-    /// </summary>
+    public required string AccessToken { get; init; }
+    public required string RefreshToken { get; init; }
+    public required DateTime AccessTokenExpiresAt { get; init; }
     public required UserDto User { get; init; }
+}
+
+public record RefreshRequest
+{
+    public required string RefreshToken { get; init; }
 }
