@@ -5,6 +5,7 @@ using CipherAnnotation.Core.Enums;
 using CipherAnnotation.Core.Interfaces;
 using CipherAnnotation.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 
@@ -479,22 +480,25 @@ public class DocumentsController : ControllerBase
                 return BadRequest(new { message = "Cannot share document with yourself." });
             }
 
+            if (document.Shares.Any(s => s.UserId == sharedWithUser.Id))
+            {
+                return BadRequest(new { message = "Document is already shared with this user." });
+            }
+
             var permission = Enum.TryParse<PermissionType>(request.Permission, out var perm)
                 ? perm
                 : PermissionType.Read;
 
             var documentShare = new DocumentShare
             {
-                Id = Guid.NewGuid(),
                 DocumentId = id,
                 UserId = sharedWithUser.Id,
                 Permission = permission,
                 SharedAt = DateTime.UtcNow
             };
 
-            document.Shares.Add(documentShare);
-            _documentRepository.Update(document);
-            await _documentRepository.SaveChangesAsync(cancellationToken);
+            _dbContext.DocumentShares.Add(documentShare);
+            await _dbContext.SaveChangesAsync(cancellationToken);
 
             _logger.LogInformation("Document {DocumentId} shared by user {UserId} with {SharedWith} with {Permission} permission.",
                 id, userId, request.UserEmail, permission);
@@ -509,7 +513,7 @@ public class DocumentsController : ControllerBase
                 SharedAt = documentShare.SharedAt
             };
 
-            return CreatedAtAction(nameof(ShareDocumentAsync), shareDto);
+            return StatusCode(StatusCodes.Status201Created, shareDto);
         }
         catch (Exception ex)
         {
@@ -646,6 +650,162 @@ public class DocumentsController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Duplicates an existing document for the current user. Clones metadata, pages
+    /// (reusing the same image blobs), captions, annotations, and bounding boxes.
+    /// Shares and preprocess history are not copied.
+    /// </summary>
+    [HttpPost("{id:guid}/duplicate")]
+    [ProducesResponseType(typeof(DocumentDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<ActionResult<DocumentDto>> DuplicateDocumentAsync(
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var userId = GetCurrentUserId();
+            if (userId == Guid.Empty)
+            {
+                return Unauthorized();
+            }
+
+            var source = await _dbContext.Documents
+                .Include(d => d.Pages)
+                    .ThenInclude(p => p.Annotations)
+                        .ThenInclude(a => a.BoundingBox)
+                .Include(d => d.Captions)
+                .Include(d => d.Shares)
+                .FirstOrDefaultAsync(d => d.Id == id, cancellationToken);
+
+            if (source == null)
+            {
+                return NotFound(new { message = "Document not found." });
+            }
+
+            if (!CanAccessDocument(source, userId))
+            {
+                return Forbid();
+            }
+
+            var now = DateTime.UtcNow;
+            var newDoc = new Document
+            {
+                Id = Guid.NewGuid(),
+                Title = $"{source.Title} (Copy)",
+                Description = source.Description,
+                OriginCountry = source.OriginCountry,
+                Author = source.Author,
+                Language = source.Language,
+                Visibility = Visibility.Private,
+                OwnerId = userId,
+                CreatedAt = now,
+                UpdatedAt = now,
+            };
+            _dbContext.Documents.Add(newDoc);
+
+            var captionIdMap = new Dictionary<Guid, Guid>();
+            foreach (var caption in source.Captions.OrderBy(c => c.CreatedAt))
+            {
+                var newCaptionId = Guid.NewGuid();
+                captionIdMap[caption.Id] = newCaptionId;
+                _dbContext.Captions.Add(new Caption
+                {
+                    Id = newCaptionId,
+                    DocumentId = newDoc.Id,
+                    Name = caption.Name,
+                    CreatedAt = now,
+                });
+            }
+
+            var annotationIdMap = new Dictionary<Guid, Guid>();
+            var clonedAnnotations = new List<(Annotation src, Annotation copy)>();
+
+            foreach (var page in source.Pages.OrderBy(p => p.PageNumber))
+            {
+                var newPage = new Page
+                {
+                    Id = Guid.NewGuid(),
+                    DocumentId = newDoc.Id,
+                    PageNumber = page.PageNumber,
+                    ImageBlobId = page.ImageBlobId,
+                    Width = page.Width,
+                    Height = page.Height,
+                    Orientation = page.Orientation,
+                    ResolutionDPI = page.ResolutionDPI,
+                    CreatedAt = now,
+                };
+                _dbContext.Pages.Add(newPage);
+
+                foreach (var annotation in page.Annotations)
+                {
+                    if (!captionIdMap.TryGetValue(annotation.CaptionId, out var mappedCaptionId))
+                        continue;
+
+                    var newAnnotationId = Guid.NewGuid();
+                    annotationIdMap[annotation.Id] = newAnnotationId;
+
+                    var copy = new Annotation
+                    {
+                        Id = newAnnotationId,
+                        PageId = newPage.Id,
+                        CaptionId = mappedCaptionId,
+                        Type = annotation.Type,
+                        Content = annotation.Content,
+                        Transcription = annotation.Transcription,
+                        Orientation = annotation.Orientation,
+                        CreatedAt = now,
+                    };
+                    _dbContext.Annotations.Add(copy);
+
+                    if (annotation.BoundingBox != null)
+                    {
+                        _dbContext.BoundingBoxes.Add(new BoundingBox
+                        {
+                            Id = Guid.NewGuid(),
+                            AnnotationId = newAnnotationId,
+                            X = annotation.BoundingBox.X,
+                            Y = annotation.BoundingBox.Y,
+                            Width = annotation.BoundingBox.Width,
+                            Height = annotation.BoundingBox.Height,
+                        });
+                    }
+
+                    clonedAnnotations.Add((annotation, copy));
+                }
+            }
+
+            foreach (var (src, copy) in clonedAnnotations)
+            {
+                if (src.ParentId.HasValue && annotationIdMap.TryGetValue(src.ParentId.Value, out var newParentId))
+                {
+                    copy.ParentId = newParentId;
+                }
+                if (src.TranscriptionRefId.HasValue && annotationIdMap.TryGetValue(src.TranscriptionRefId.Value, out var newRefId))
+                {
+                    copy.TranscriptionRefId = newRefId;
+                }
+            }
+
+            await _dbContext.SaveChangesAsync(cancellationToken);
+
+            _logger.LogInformation("Document {SourceId} duplicated as {NewId} by user {UserId}.", id, newDoc.Id, userId);
+
+            var reloaded = await _documentRepository.GetByIdAsync(newDoc.Id, cancellationToken);
+            var dto = MapDocumentToDto(reloaded ?? newDoc);
+            return StatusCode(StatusCodes.Status201Created, dto);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "An error occurred while duplicating document {DocumentId}.", id);
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                new { message = "An error occurred while duplicating the document." });
+        }
+    }
+
     // Helper methods
 
     private Guid GetCurrentUserId()
@@ -663,10 +823,36 @@ public class DocumentsController : ControllerBase
 
     private DocumentDto MapDocumentToDto(Document document)
     {
+        var userId = GetCurrentUserId();
+
         var firstPage = document.Pages?.OrderBy(p => p.PageNumber).FirstOrDefault();
         var thumbnailUrl = firstPage != null
             ? $"/documents/{document.Id}/pages/{firstPage.Id}/image"
             : null;
+
+        string myPermission;
+        if (userId != Guid.Empty && document.OwnerId == userId)
+        {
+            myPermission = "Owner";
+        }
+        else
+        {
+            var share = userId == Guid.Empty
+                ? null
+                : document.Shares?.FirstOrDefault(s => s.UserId == userId);
+            if (share != null)
+            {
+                myPermission = share.Permission == PermissionType.Edit ? "Edit" : "Read";
+            }
+            else if (document.Visibility == Visibility.Public)
+            {
+                myPermission = "Read";
+            }
+            else
+            {
+                myPermission = "None";
+            }
+        }
 
         return new DocumentDto
         {
@@ -682,7 +868,8 @@ public class DocumentsController : ControllerBase
             CreatedAt = document.CreatedAt,
             UpdatedAt = document.UpdatedAt,
             PageCount = document.Pages?.Count ?? 0,
-            ThumbnailUrl = thumbnailUrl
+            ThumbnailUrl = thumbnailUrl,
+            MyPermission = myPermission
         };
     }
 

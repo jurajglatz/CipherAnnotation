@@ -46,6 +46,8 @@ interface ToolbarProps {
   onTogglePreprocess: () => void;
   onAutoAnnotate: () => void;
   isAutoAnnotating: boolean;
+  /** When true, hides/disables all mutating actions (used for read-only shares). */
+  readOnly?: boolean;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -68,7 +70,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onTogglePreprocess,
   onAutoAnnotate,
   isAutoAnnotating,
+  readOnly = false,
 }) => {
+  const annotationToolDisabled = isPreprocessOpen || readOnly;
+  const undoDisabled = !canUndo || readOnly;
+  const redoDisabled = !canRedo || readOnly;
+  const autoAnnotateDisabled = isPreprocessOpen || isAutoAnnotating || readOnly;
   const navigate = useNavigate();
   const [showHelp, setShowHelp] = useState(false);
 
@@ -110,13 +117,21 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             </button>
           </Tooltip>
 
-          <Tooltip label={isPreprocessOpen ? 'First close preprocessing' : 'Draw annotation'}>
+          <Tooltip
+            label={
+              readOnly
+                ? 'Read-only access'
+                : isPreprocessOpen
+                  ? 'First close preprocessing'
+                  : 'Draw annotation'
+            }
+          >
             <button
               onClick={() => onToolChange('annotation')}
-              disabled={isPreprocessOpen}
+              disabled={annotationToolDisabled}
               className={`p-2 rounded transition-colors ${
-                isPreprocessOpen
-                  ? 'cursor-not-allowed'
+                annotationToolDisabled
+                  ? 'cursor-not-allowed opacity-50'
                   : currentTool === 'annotation'
                     ? 'bg-parchment-50 shadow-sm ring-1 ring-sepia-600/20'
                     : 'hover:bg-parchment-200/60'
@@ -137,12 +152,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
         {/* Undo/Redo */}
         <div className="flex items-center gap-1">
-          <Tooltip label="Undo (Ctrl+Z)">
+          <Tooltip label={readOnly ? 'Read-only access' : 'Undo (Ctrl+Z)'}>
             <button
               onClick={onUndo}
-              disabled={!canUndo}
+              disabled={undoDisabled}
               className={`p-2 rounded transition-colors ${
-                canUndo
+                !undoDisabled
                   ? 'hover:bg-parchment-100 cursor-pointer'
                   : 'opacity-50 cursor-not-allowed'
               }`}
@@ -151,12 +166,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             </button>
           </Tooltip>
 
-          <Tooltip label="Redo (Ctrl+Y)">
+          <Tooltip label={readOnly ? 'Read-only access' : 'Redo (Ctrl+Y)'}>
             <button
               onClick={onRedo}
-              disabled={!canRedo}
+              disabled={redoDisabled}
               className={`p-2 rounded transition-colors ${
-                canRedo
+                !redoDisabled
                   ? 'hover:bg-parchment-100 cursor-pointer'
                   : 'opacity-50 cursor-not-allowed'
               }`}
@@ -257,19 +272,21 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       <div className="flex items-center gap-2">
         <Tooltip
           label={
-            isPreprocessOpen
-              ? 'First close preprocessing'
-              : isAutoAnnotating
-                ? 'Detecting…'
-                : 'Auto-annotate this page (YOLOv11)'
+            readOnly
+              ? 'Read-only access'
+              : isPreprocessOpen
+                ? 'First close preprocessing'
+                : isAutoAnnotating
+                  ? 'Detecting…'
+                  : 'Auto-annotate this page (YOLOv11)'
           }
           position="left"
         >
           <button
             onClick={onAutoAnnotate}
-            disabled={isPreprocessOpen || isAutoAnnotating}
+            disabled={autoAnnotateDisabled}
             className={`flex items-center gap-2 px-3 py-2 rounded transition-colors ${
-              isPreprocessOpen || isAutoAnnotating
+              autoAnnotateDisabled
                 ? 'opacity-60 cursor-not-allowed'
                 : 'hover:bg-gray-100 text-gray-700'
             }`}
@@ -281,19 +298,21 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           </button>
         </Tooltip>
 
-        <Tooltip label={isPreprocessOpen ? 'Close preprocessing' : 'Open preprocessing'} position="left">
-          <button
-            onClick={onTogglePreprocess}
-            className={`flex items-center gap-2 px-3 py-2 rounded transition-colors ${
-              isPreprocessOpen
-                ? 'bg-sepia-700 text-parchment-50'
-                : 'hover:bg-gray-100 text-gray-700'
-            }`}
-          >
-            <Wand2 className="w-5 h-5" />
-            <span className="text-xs font-medium">Preprocess</span>
-          </button>
-        </Tooltip>
+        {!readOnly && (
+          <Tooltip label={isPreprocessOpen ? 'Close preprocessing' : 'Open preprocessing'} position="left">
+            <button
+              onClick={onTogglePreprocess}
+              className={`flex items-center gap-2 px-3 py-2 rounded transition-colors ${
+                isPreprocessOpen
+                  ? 'bg-sepia-700 text-parchment-50'
+                  : 'hover:bg-gray-100 text-gray-700'
+              }`}
+            >
+              <Wand2 className="w-5 h-5" />
+              <span className="text-xs font-medium">Preprocess</span>
+            </button>
+          </Tooltip>
+        )}
 
         <Tooltip
           label={

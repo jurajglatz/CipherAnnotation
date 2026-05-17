@@ -70,6 +70,8 @@ interface CanvasProps {
   lockedIds?: Set<string>;
   previewOps?: PreprocessOperation[];
   annotationsDisabled?: boolean;
+  /** When true, allows selecting/inspecting annotations but blocks moving, resizing, and drawing. */
+  readOnly?: boolean;
 }
 
 const RESIZE_HANDLE_SIZE = 4;
@@ -137,6 +139,7 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
   lockedIds,
   previewOps,
   annotationsDisabled = false,
+  readOnly = false,
 }) => {
   const effectiveSelectedIds = selectedIds && selectedIds.size > 0
     ? selectedIds
@@ -432,7 +435,7 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
     }
 
     // Resize handle click (single-select only)
-    if (selectedAnnotation && currentTool === 'select' && !isLocked(selectedAnnotation.id) && !isMultiSelect) {
+    if (!readOnly && selectedAnnotation && currentTool === 'select' && !isLocked(selectedAnnotation.id) && !isMultiSelect) {
       const selected = findAnnotationById(selectedAnnotation.id);
       if (selected) {
         const { x, y, width, height } = selected.boundingBox;
@@ -458,7 +461,7 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
     }
 
     // Click inside any selected box → start moving (single or group)
-    if (currentTool === 'select' && effectiveSelectedIds.size > 0 && !(e.metaKey || e.ctrlKey || e.shiftKey)) {
+    if (!readOnly && currentTool === 'select' && effectiveSelectedIds.size > 0 && !(e.metaKey || e.ctrlKey || e.shiftKey)) {
       for (const id of effectiveSelectedIds) {
         if (isLocked(id)) continue;
         const found = findAnnotationById(id);
@@ -509,7 +512,7 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
     }
 
     // Two-click drawing (single annotation tool)
-    if (currentTool === 'annotation') {
+    if (!readOnly && currentTool === 'annotation') {
       if (!drawingRef.current.isDrawing) {
         setDrawing({
           isDrawing: true,
@@ -771,7 +774,7 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
                   pointerEvents="none"
                 />
 
-                {primary && currentTool === 'select' && !isMultiSelect && !isLocked(ann.id) && (
+                {primary && !readOnly && currentTool === 'select' && !isMultiSelect && !isLocked(ann.id) && (
                   <>
                     {HANDLE_POSITIONS.map((pos, idx) => {
                       const isActiveHandle = isBeingResized && resizing.handleIndex === idx;

@@ -144,7 +144,7 @@ public class PagesController : ControllerBase
             if (document == null)
                 return NotFound(new { message = "Document not found." });
 
-            if (!CanAccessDocument(document, userId))
+            if (!CanEditDocument(document, userId))
                 return Forbid();
 
             var page = document.Pages.FirstOrDefault(p => p.Id == pageId);
@@ -201,7 +201,7 @@ public class PagesController : ControllerBase
             if (document == null)
                 return NotFound(new { message = "Document not found." });
 
-            if (!CanAccessDocument(document, userId))
+            if (!CanEditDocument(document, userId))
                 return Forbid();
 
             var page = document.Pages.FirstOrDefault(p => p.Id == pageId);
@@ -432,7 +432,7 @@ public class PagesController : ControllerBase
         var userId = GetCurrentUserId();
         var document = await _documentRepository.GetByIdAsync(documentId, cancellationToken);
         if (document == null) return NotFound(new { message = "Document not found." });
-        if (!CanAccessDocument(document, userId)) return Forbid();
+        if (!CanEditDocument(document, userId)) return Forbid();
 
         var page = document.Pages.FirstOrDefault(p => p.Id == pageId);
         if (page == null) return NotFound(new { message = "Page not found." });
@@ -493,7 +493,7 @@ public class PagesController : ControllerBase
         var userId = GetCurrentUserId();
         var document = await _documentRepository.GetByIdAsync(documentId, cancellationToken);
         if (document == null) return NotFound(new { message = "Document not found." });
-        if (!CanAccessDocument(document, userId)) return Forbid();
+        if (!CanEditDocument(document, userId)) return Forbid();
 
         var page = document.Pages.FirstOrDefault(p => p.Id == pageId);
         if (page == null) return NotFound(new { message = "Page not found." });
@@ -553,7 +553,7 @@ public class PagesController : ControllerBase
         var userId = GetCurrentUserId();
         var document = await _documentRepository.GetByIdAsync(documentId, cancellationToken);
         if (document == null) return NotFound(new { message = "Document not found." });
-        if (!CanAccessDocument(document, userId)) return Forbid();
+        if (!CanEditDocument(document, userId)) return Forbid();
 
         var orderedPages = document.Pages.OrderBy(p => p.PageNumber).ToList();
         var blobsToDelete = new List<Guid>();
@@ -820,6 +820,14 @@ public class PagesController : ControllerBase
         return document.OwnerId == userId ||
                document.Visibility == Visibility.Public ||
                document.Shares.Any(s => s.UserId == userId);
+    }
+
+    private bool CanEditDocument(Document document, Guid userId)
+    {
+        if (userId == Guid.Empty) return false;
+
+        return document.OwnerId == userId ||
+               document.Shares.Any(s => s.UserId == userId && s.Permission == PermissionType.Edit);
     }
 
     private PageDto MapPageToDtoSync(Page page, int? currentSeq, int? minSeq, int? maxSeq)

@@ -344,13 +344,15 @@ export const DocumentDetailPage: React.FC = () => {
 
             {/* Action Buttons */}
             <div className="flex gap-2 flex-wrap">
-              <button
-                onClick={() => setIsShareOpen(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-ink-900 hover:bg-primary-700 text-parchment-50 rounded-md transition-colors font-semibold shadow-sm"
-              >
-                <Share2 className="w-4 h-4" />
-                Share
-              </button>
+              {document.myPermission === 'Owner' && (
+                <button
+                  onClick={() => setIsShareOpen(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-ink-900 hover:bg-primary-700 text-parchment-50 rounded-md transition-colors font-semibold shadow-sm"
+                >
+                  <Share2 className="w-4 h-4" />
+                  Share
+                </button>
+              )}
               {pages.length > 0 && (
                 <button
                   onClick={() => setIsExportOpen(true)}
@@ -360,20 +362,24 @@ export const DocumentDetailPage: React.FC = () => {
                   Export
                 </button>
               )}
-              <button
-                onClick={openEditModal}
-                className="flex items-center gap-2 px-4 py-2 bg-transparent border-2 border-ink-900/20 hover:border-ink-900/60 text-ink-900 rounded-md transition-colors font-semibold"
-              >
-                <Edit3 className="w-4 h-4" />
-                Edit
-              </button>
-              <button
-                onClick={() => setIsDeleteOpen(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-transparent border-2 border-cipher-red/30 hover:border-cipher-red text-cipher-red hover:bg-cipher-red/5 rounded-md transition-colors font-semibold"
-              >
-                <Trash2 className="w-4 h-4" />
-                Delete
-              </button>
+              {document.myPermission === 'Owner' && (
+                <>
+                  <button
+                    onClick={openEditModal}
+                    className="flex items-center gap-2 px-4 py-2 bg-transparent border-2 border-ink-900/20 hover:border-ink-900/60 text-ink-900 rounded-md transition-colors font-semibold"
+                  >
+                    <Edit3 className="w-4 h-4" />
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => setIsDeleteOpen(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-transparent border-2 border-cipher-red/30 hover:border-cipher-red text-cipher-red hover:bg-cipher-red/5 rounded-md transition-colors font-semibold"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Delete
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
@@ -425,13 +431,15 @@ export const DocumentDetailPage: React.FC = () => {
           <h2 className="font-serif text-3xl font-semibold text-ink-900">Pages</h2>
 
           <div className="flex gap-2 items-center">
-            <button
-              onClick={() => setIsAddPagesOpen(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-ink-900 hover:bg-primary-700 text-parchment-50 rounded-md transition-colors font-semibold shadow-sm"
-            >
-              <Plus className="w-4 h-4" />
-              Add Pages
-            </button>
+            {document.myPermission === 'Owner' && (
+              <button
+                onClick={() => setIsAddPagesOpen(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-ink-900 hover:bg-primary-700 text-parchment-50 rounded-md transition-colors font-semibold shadow-sm"
+              >
+                <Plus className="w-4 h-4" />
+                Add Pages
+              </button>
+            )}
 
             <div className="flex gap-1 bg-parchment-100 border border-sepia-600/20 rounded-md p-1">
               <button
@@ -504,13 +512,15 @@ export const DocumentDetailPage: React.FC = () => {
         {pages.length === 0 ? (
           <div className="bg-parchment-50/80 backdrop-blur-sm border border-sepia-600/20 rounded-lg shadow-sm p-12 text-center">
             <p className="text-ink-900/60 font-serif italic text-lg mb-6">No pages uploaded yet</p>
-            <button
-              onClick={() => setIsAddPagesOpen(true)}
-              className="inline-flex items-center gap-2 px-5 py-3 bg-ink-900 hover:bg-primary-700 text-parchment-50 font-semibold rounded-md shadow-lg shadow-ink-900/20 transition-all hover:-translate-y-0.5"
-            >
-              <Plus className="w-5 h-5" />
-              Add Pages
-            </button>
+            {document.myPermission === 'Owner' && (
+              <button
+                onClick={() => setIsAddPagesOpen(true)}
+                className="inline-flex items-center gap-2 px-5 py-3 bg-ink-900 hover:bg-primary-700 text-parchment-50 font-semibold rounded-md shadow-lg shadow-ink-900/20 transition-all hover:-translate-y-0.5"
+              >
+                <Plus className="w-5 h-5" />
+                Add Pages
+              </button>
+            )}
           </div>
         ) : (
           <div

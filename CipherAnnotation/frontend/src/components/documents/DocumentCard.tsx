@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Eye, Edit3, Share2, Trash2, Lock, Globe, FileText } from 'lucide-react';
+import { Eye, Edit3, Share2, Trash2, Lock, Globe, FileText, Copy } from 'lucide-react';
 import { Document } from '@/types';
 import api from '@/services/api';
 
@@ -14,6 +14,7 @@ interface DocumentCardProps {
   onEdit?: (doc: Document) => void;
   onDelete?: (doc: Document) => void;
   onShare?: (doc: Document) => void;
+  onDuplicate?: (doc: Document) => void;
 }
 
 export const DocumentCard: React.FC<DocumentCardProps> = ({
@@ -22,6 +23,7 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
   onEdit,
   onDelete,
   onShare,
+  onDuplicate,
 }) => {
   const [isHovering, setIsHovering] = useState(false);
   const [thumbnailBlobUrl, setThumbnailBlobUrl] = useState<string | null>(null);
@@ -148,6 +150,16 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
             >
               <Edit3 className="w-4 h-4" />
               <span className="hidden sm:inline">Edit</span>
+            </button>
+            )}
+            {onDuplicate && (
+            <button
+              onClick={() => onDuplicate(document)}
+              className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-transparent hover:bg-ink-900/5 text-ink-900 border border-sepia-600/30 hover:border-ink-900/60 rounded-md transition-colors text-xs font-semibold"
+              title="Duplicate document"
+            >
+              <Copy className="w-4 h-4" />
+              <span className="hidden sm:inline">Duplicate</span>
             </button>
             )}
             {onShare && (

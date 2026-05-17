@@ -32,6 +32,7 @@ export const DocumentsPage: React.FC = () => {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [navigateAfterSave, setNavigateAfterSave] = useState(false);
   const [editForm, setEditForm] = useState({
     title: '',
     description: '',
@@ -92,7 +93,32 @@ export const DocumentsPage: React.FC = () => {
       originCountry: doc.originCountry || '',
       visibility: doc.visibility,
     });
+    setNavigateAfterSave(false);
     setIsEditModalOpen(true);
+  };
+
+  // Handle document duplicate: clone on backend, then open edit modal prefilled
+  // with the new doc so the user can rename/adjust metadata before annotating.
+  const handleDuplicateDocument = async (doc: Document) => {
+    try {
+      const newDoc = await documentService.duplicateDocument(doc.id);
+      toast.success('Document duplicated');
+      setSelectedDocument(newDoc);
+      setEditForm({
+        title: newDoc.title,
+        description: newDoc.description || '',
+        author: newDoc.author || '',
+        language: newDoc.language || '',
+        originCountry: newDoc.originCountry || '',
+        visibility: newDoc.visibility,
+      });
+      setNavigateAfterSave(true);
+      setIsEditModalOpen(true);
+      fetchDocuments('my');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to duplicate document';
+      toast.error(message);
+    }
   };
 
   const handleSaveEdit = async () => {
@@ -114,8 +140,13 @@ export const DocumentsPage: React.FC = () => {
       });
       toast.success('Document updated');
       setIsEditModalOpen(false);
+      const goToId = navigateAfterSave ? selectedDocument.id : null;
       setSelectedDocument(null);
+      setNavigateAfterSave(false);
       fetchDocuments('my');
+      if (goToId) {
+        navigate(`/documents/${goToId}`);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to update document';
       toast.error(message);
@@ -226,6 +257,7 @@ export const DocumentsPage: React.FC = () => {
               onEdit={handleEditDocument}
               onDelete={handleDeleteClick}
               onShare={handleShare}
+              onDuplicate={handleDuplicateDocument}
             />
           ))}
         </div>

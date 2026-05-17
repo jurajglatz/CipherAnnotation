@@ -36,6 +36,8 @@ interface AnnotationTreePanelProps {
   lockedIds?: Set<string>;
   effectivelyLockedIds?: Set<string>;
   onToggleLock?: (id: string) => void;
+  /** When true, hides delete/duplicate buttons (used for read-only shares). */
+  readOnly?: boolean;
 }
 
 interface LockButtonProps {
@@ -100,6 +102,7 @@ export const AnnotationTreePanel: React.FC<AnnotationTreePanelProps> = ({
   lockedIds,
   effectivelyLockedIds,
   onToggleLock,
+  readOnly = false,
 }) => {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
@@ -219,6 +222,7 @@ export const AnnotationTreePanel: React.FC<AnnotationTreePanelProps> = ({
                   lockedIds={lockedIds}
                   effectivelyLockedIds={effectivelyLockedIds}
                   onToggleLock={onToggleLock}
+                  readOnly={readOnly}
                 />
               );
             })}
@@ -244,6 +248,7 @@ interface RowProps {
   lockedIds?: Set<string>;
   effectivelyLockedIds?: Set<string>;
   onToggleLock?: (id: string) => void;
+  readOnly?: boolean;
 }
 
 const AnnotationRow: React.FC<RowProps> = ({
@@ -261,6 +266,7 @@ const AnnotationRow: React.FC<RowProps> = ({
   lockedIds,
   effectivelyLockedIds,
   onToggleLock,
+  readOnly = false,
 }) => {
   const children = childrenByParent.get(ann.id) ?? [];
   const isSelected = selectedIds.has(ann.id);
@@ -321,7 +327,7 @@ const AnnotationRow: React.FC<RowProps> = ({
           {typeIcon(ann.type)}
         </span>
 
-        {onDuplicate && (
+        {onDuplicate && !readOnly && (
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -334,7 +340,7 @@ const AnnotationRow: React.FC<RowProps> = ({
           </button>
         )}
 
-        {onToggleLock && (
+        {onToggleLock && !readOnly && (
           <LockButton
             id={ann.id}
             directlyLocked={directlyLocked}
@@ -343,16 +349,18 @@ const AnnotationRow: React.FC<RowProps> = ({
           />
         )}
 
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete(ann.id);
-          }}
-          className="p-1 hover:bg-cipher-red/10 text-cipher-red rounded opacity-0 group-hover:opacity-100"
-          title="Delete annotation"
-        >
-          <Trash2 className="w-4 h-4" />
-        </button>
+        {!readOnly && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(ann.id);
+            }}
+            className="p-1 hover:bg-cipher-red/10 text-cipher-red rounded opacity-0 group-hover:opacity-100"
+            title="Delete annotation"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        )}
       </div>
 
       {children.length > 0 && isExpanded(ann.id) && (
@@ -374,6 +382,7 @@ const AnnotationRow: React.FC<RowProps> = ({
               lockedIds={lockedIds}
               effectivelyLockedIds={effectivelyLockedIds}
               onToggleLock={onToggleLock}
+              readOnly={readOnly}
             />
           ))}
         </ul>

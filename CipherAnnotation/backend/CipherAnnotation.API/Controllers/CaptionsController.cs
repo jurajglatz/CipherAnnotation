@@ -50,7 +50,7 @@ public class CaptionsController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<CaptionDto>> Create(Guid documentId, CreateCaptionRequest req)
     {
-        if (!await UserCanAccessDocument(documentId)) return Forbid();
+        if (!await UserCanEditDocument(documentId)) return Forbid();
 
         var name = req.Name.Trim();
         if (await _db.Captions.AnyAsync(c => c.DocumentId == documentId && c.Name == name))
@@ -67,7 +67,7 @@ public class CaptionsController : ControllerBase
     [HttpPut("{captionId:guid}")]
     public async Task<ActionResult<CaptionDto>> Rename(Guid documentId, Guid captionId, UpdateCaptionRequest req)
     {
-        if (!await UserCanAccessDocument(documentId)) return Forbid();
+        if (!await UserCanEditDocument(documentId)) return Forbid();
 
         var caption = await _db.Captions.FirstOrDefaultAsync(c => c.Id == captionId && c.DocumentId == documentId);
         if (caption is null) return NotFound();
@@ -86,7 +86,7 @@ public class CaptionsController : ControllerBase
     [HttpDelete("{captionId:guid}")]
     public async Task<IActionResult> Delete(Guid documentId, Guid captionId)
     {
-        if (!await UserCanAccessDocument(documentId)) return Forbid();
+        if (!await UserCanEditDocument(documentId)) return Forbid();
 
         var caption = await _db.Captions.FirstOrDefaultAsync(c => c.Id == captionId && c.DocumentId == documentId);
         if (caption is null) return NotFound();
@@ -111,5 +111,14 @@ public class CaptionsController : ControllerBase
             (d.OwnerId == userId
              || d.Visibility == Visibility.Public
              || d.Shares.Any(s => s.UserId == userId)));
+    }
+
+    private async Task<bool> UserCanEditDocument(Guid documentId)
+    {
+        var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        return await _db.Documents.AnyAsync(d =>
+            d.Id == documentId &&
+            (d.OwnerId == userId
+             || d.Shares.Any(s => s.UserId == userId && s.Permission == PermissionType.Edit)));
     }
 }
