@@ -1,4 +1,5 @@
 using CipherAnnotation.API.Extensions;
+using CipherAnnotation.API.Validation;
 using CipherAnnotation.Core.DTOs.Document;
 using CipherAnnotation.Core.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -13,10 +14,12 @@ namespace CipherAnnotation.API.Controllers;
 public class DocumentsController : ControllerBase
 {
     private readonly IDocumentService _documents;
+    private readonly UploadValidator _uploadValidator;
 
-    public DocumentsController(IDocumentService documents)
+    public DocumentsController(IDocumentService documents, UploadValidator uploadValidator)
     {
         _documents = documents;
+        _uploadValidator = uploadValidator;
     }
 
     [HttpGet]
@@ -66,6 +69,12 @@ public class DocumentsController : ControllerBase
 
         var userId = GetCurrentUserId();
         if (userId == Guid.Empty) return Unauthorized();
+
+        if (files != null && files.Count > 0)
+        {
+            var error = _uploadValidator.ValidateBatch(files);
+            if (error != null) return BadRequest(new { message = error });
+        }
 
         var uploads = await ReadUploadsAsync(files, ct);
         var result = await _documents.CreateAsync(userId, request, uploads, ct);

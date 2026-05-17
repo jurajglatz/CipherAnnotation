@@ -1,3 +1,4 @@
+using CipherAnnotation.API.Validation;
 using CipherAnnotation.Core.Interfaces;
 using CipherAnnotation.Infrastructure.Data;
 using CipherAnnotation.Infrastructure.Repositories;
@@ -10,10 +11,12 @@ using CipherAnnotation.Infrastructure.Services.ImageProcessing;
 using CipherAnnotation.Infrastructure.Services.Pages;
 using CipherAnnotation.Infrastructure.Services.Storage;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System.Text;
+using System.Threading.RateLimiting;
 
 // Build the host
 var builder = WebApplication.CreateBuilder(args);
@@ -26,8 +29,11 @@ var configuration = builder.Configuration;
 // ============================================================================
 
 // Add Entity Framework Core with PostgreSQL
-var connectionString = configuration.GetConnectionString("DefaultConnection")
-    ?? throw new InvalidOperationException("Connection string 'DefaultConnection' is not configured.");
+var connectionString = configuration.GetConnectionString("DefaultConnection");
+if (string.IsNullOrWhiteSpace(connectionString))
+    throw new InvalidOperationException(
+        "Connection string 'DefaultConnection' is not configured. " +
+        "Set it via user-secrets (dev) or the ConnectionStrings__DefaultConnection environment variable (prod).");
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(connectionString));
@@ -50,6 +56,11 @@ builder.Services.AddScoped<IPageService, PageService>();
 builder.Services.AddScoped<IAnnotationService, AnnotationService>();
 builder.Services.AddScoped<IExportOrchestrationService, ExportOrchestrationService>();
 
+// Upload validation (file size, MIME, max pages)
+builder.Services.Configure<UploadValidationOptions>(
+    configuration.GetSection(UploadValidationOptions.SectionName));
+builder.Services.AddSingleton<UploadValidator>();
+
 // Allow larger multipart uploads (images can be several MB each, and documents may contain 100+ pages)
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
 {
@@ -69,12 +80,15 @@ builder.WebHost.ConfigureKestrel(options =>
 // ============================================================================
 
 var jwtSettings = configuration.GetSection("Jwt");
-var key = jwtSettings["Key"]
-    ?? throw new InvalidOperationException("JWT Key is not configured in appsettings.json");
+var key = jwtSettings["Key"];
+if (string.IsNullOrWhiteSpace(key))
+    throw new InvalidOperationException(
+        "JWT 'Key' is not configured. Set it via user-secrets (dev) or the Jwt__Key environment variable (prod). " +
+        "Must be at least 32 characters.");
 var issuer = jwtSettings["Issuer"]
-    ?? throw new InvalidOperationException("JWT Issuer is not configured in appsettings.json");
+    ?? throw new InvalidOperationException("JWT 'Issuer' is not configured.");
 var audience = jwtSettings["Audience"]
-    ?? throw new InvalidOperationException("JWT Audience is not configured in appsettings.json");
+    ?? throw new InvalidOperationException("JWT 'Audience' is not configured.");
 
 var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key));
 
@@ -99,16 +113,43 @@ builder.Services
 // Configure CORS
 // ============================================================================
 
+var allowedOrigins = configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+    ?? Array.Empty<string>();
+if (allowedOrigins.Length == 0)
+    throw new InvalidOperationException(
+        "No CORS origins configured. Set 'Cors:AllowedOrigins' in appsettings.json or via the Cors__AllowedOrigins__0 environment variable.");
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
     {
         policy
-            .WithOrigins("http://localhost:3000", "http://localhost:5173")
+            .WithOrigins(allowedOrigins)
             .AllowAnyMethod()
             .AllowAnyHeader()
             .AllowCredentials();
     });
+});
+
+// ============================================================================
+// Configure Rate Limiting (defense against credential-stuffing / brute-force on auth)
+// ============================================================================
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    // Fixed window: 5 requests per minute per client IP for auth endpoints.
+    options.AddPolicy("auth", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            }));
 });
 
 // ============================================================================
@@ -158,6 +199,14 @@ builder.Services.AddSwaggerGen(options =>
 
 var app = builder.Build();
 
+// Apply EF Core migrations on startup when ApplyMigrationsOnStartup=true (used by Docker).
+if (configuration.GetValue("ApplyMigrationsOnStartup", false))
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    db.Database.Migrate();
+}
+
 // ============================================================================
 // Configure the HTTP request pipeline
 // ============================================================================
@@ -173,25 +222,18 @@ if (app.Environment.IsDevelopment())
     });
 }
 
-// HTTPS redirection
-app.UseHttpsRedirection();
+// HTTPS redirection (dev only — in production HTTPS is terminated at the reverse proxy)
+if (app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
 
 // ============================================================================
 // Apply middleware in order
 // ============================================================================
 
-// CORS
-app.UseCors("AllowFrontend");
-
-// Authentication and Authorization
-app.UseAuthentication();
-app.UseAuthorization();
-
-// Map controllers
-app.MapControllers();
-
 // ============================================================================
-// Error Handling Middleware
+// Error Handling Middleware (must run before downstream middleware to catch their exceptions)
 // ============================================================================
 
 app.UseExceptionHandler(errorApp =>
@@ -214,6 +256,19 @@ app.UseExceptionHandler(errorApp =>
         await context.Response.WriteAsJsonAsync(response);
     });
 });
+
+// CORS
+app.UseCors("AllowFrontend");
+
+// Rate limiting (must run before endpoints so per-policy limits apply)
+app.UseRateLimiter();
+
+// Authentication and Authorization
+app.UseAuthentication();
+app.UseAuthorization();
+
+// Map controllers
+app.MapControllers();
 
 // ============================================================================
 // Health check endpoint

@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using CipherAnnotation.API.Extensions;
+using CipherAnnotation.API.Validation;
 using CipherAnnotation.Core.Common;
 using CipherAnnotation.Core.DTOs.Document;
 using CipherAnnotation.Core.DTOs.Page;
@@ -15,10 +16,12 @@ namespace CipherAnnotation.API.Controllers;
 public class PagesController : ControllerBase
 {
     private readonly IPageService _pages;
+    private readonly UploadValidator _uploadValidator;
 
-    public PagesController(IPageService pages)
+    public PagesController(IPageService pages, UploadValidator uploadValidator)
     {
         _pages = pages;
+        _uploadValidator = uploadValidator;
     }
 
     [HttpGet]
@@ -80,6 +83,12 @@ public class PagesController : ControllerBase
     {
         var userId = GetCurrentUserId();
         if (userId == Guid.Empty) return Unauthorized();
+
+        if (files != null && files.Count > 0)
+        {
+            var error = _uploadValidator.ValidateBatch(files);
+            if (error != null) return BadRequest(new { message = error });
+        }
 
         var uploads = await ReadUploadsAsync(files, ct);
         var result = await _pages.AddPagesAsync(documentId, userId, uploads, ct);
