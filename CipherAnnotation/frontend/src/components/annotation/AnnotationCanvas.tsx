@@ -20,7 +20,7 @@ import {
 } from '@/hooks';
 import { HANDLE_POSITIONS, HANDLE_CURSORS } from '@/hooks/useBoxResize';
 
-type ToolType = 'select' | 'annotation';
+type ToolType = 'select' | 'annotation' | 'multiselect';
 
 interface CanvasProps {
   page: Page;
@@ -39,6 +39,8 @@ interface CanvasProps {
   onMultiBoundingBoxUpdated?: (
     updates: Array<{ id: string; box: BoundingBox }>
   ) => void;
+  /** Called when the marquee-select tool commits a rectangle. */
+  onMultiSelectFromBox?: (box: BoundingBox) => void;
   showProcessed?: boolean;
   livePreview?: {
     id: string;
@@ -64,6 +66,7 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
   onAnnotationSelected,
   onDragEndAnnotation,
   onMultiBoundingBoxUpdated,
+  onMultiSelectFromBox,
   showProcessed = false,
   livePreview = null,
   lockedIds,
@@ -110,6 +113,10 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
     pageWidth: page.width,
     pageHeight: page.height,
     onCommit: async (box) => {
+      if (currentTool === 'multiselect') {
+        onMultiSelectFromBox?.(box);
+        return;
+      }
       const created = await onCreateFromBox(box);
       if (created) onAnnotationSelected(created);
     },
@@ -235,6 +242,12 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
 
     // Two-click drawing
     if (!readOnly && currentTool === 'annotation') {
+      drawingHook.handleClick(coords.x, coords.y);
+      return;
+    }
+
+    // Marquee select — same two-click flow, commit selects intersecting annotations.
+    if (currentTool === 'multiselect') {
       drawingHook.handleClick(coords.x, coords.y);
       return;
     }
@@ -399,11 +412,26 @@ export const AnnotationCanvas: React.FC<CanvasProps> = ({
               );
             })}
 
-            <DrawingPreview
-              drawing={drawingHook.drawing}
-              annotations={annotations}
-              captions={captions}
-            />
+            {currentTool === 'multiselect' && drawingHook.drawing.isDrawing ? (
+              <rect
+                x={Math.min(drawingHook.drawing.startX, drawingHook.drawing.currentX)}
+                y={Math.min(drawingHook.drawing.startY, drawingHook.drawing.currentY)}
+                width={Math.abs(drawingHook.drawing.currentX - drawingHook.drawing.startX)}
+                height={Math.abs(drawingHook.drawing.currentY - drawingHook.drawing.startY)}
+                fill="#3b82f6"
+                fillOpacity={0.10}
+                stroke="#3b82f6"
+                strokeWidth={1.5}
+                strokeDasharray="6,4"
+                pointerEvents="none"
+              />
+            ) : (
+              <DrawingPreview
+                drawing={drawingHook.drawing}
+                annotations={annotations}
+                captions={captions}
+              />
+            )}
           </svg>
         </div>
       </div>

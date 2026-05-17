@@ -8,6 +8,7 @@ import {
   ArrowLeft,
   MousePointer2,
   Square,
+  BoxSelect,
   ZoomIn,
   ZoomOut,
   Maximize2,
@@ -24,7 +25,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { Tooltip, Modal } from '@/components/shared';
 
-export type ToolType = 'select' | 'annotation';
+export type ToolType = 'select' | 'annotation' | 'multiselect';
 
 interface ToolbarProps {
   currentTool: ToolType;
@@ -138,6 +139,28 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               }`}
             >
               <Square className="w-5 h-5" style={{ color: '#4338ca' }} />
+            </button>
+          </Tooltip>
+
+          <Tooltip
+            label={
+              isPreprocessOpen
+                ? 'First close preprocessing'
+                : 'Marquee select — draw a rectangle to select all annotations inside'
+            }
+          >
+            <button
+              onClick={() => onToolChange('multiselect')}
+              disabled={isPreprocessOpen}
+              className={`p-2 rounded transition-colors ${
+                isPreprocessOpen
+                  ? 'cursor-not-allowed opacity-50'
+                  : currentTool === 'multiselect'
+                    ? 'bg-parchment-50 shadow-sm ring-1 ring-sepia-600/20'
+                    : 'hover:bg-parchment-200/60'
+              }`}
+            >
+              <BoxSelect className="w-5 h-5 text-ink-900" />
             </button>
           </Tooltip>
 
