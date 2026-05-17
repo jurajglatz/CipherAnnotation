@@ -11,7 +11,7 @@ import { useDocuments } from '@/hooks/useDocuments';
 import { useTour } from '@/hooks/useTour';
 import { Document, Visibility } from '@/types';
 import { documentService } from '@/services';
-import { LoadingSpinner, Modal, ConfirmDialog } from '@/components/shared';
+import { LoadingSpinner, Modal, ConfirmDialog, Pagination } from '@/components/shared';
 import DocumentCard from '@/components/documents/DocumentCard';
 import CreateDocumentModal from '@/components/documents/CreateDocumentModal';
 import ShareDocumentModal from '@/components/documents/ShareDocumentModal';
@@ -26,6 +26,8 @@ export const DocumentsPage: React.FC = () => {
   // Local state
   const [searchTerm, setSearchTerm] = useState('');
   const [visibilityFilter, setVisibilityFilter] = useState<VisibilityFilter>('All');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(12);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
@@ -169,6 +171,18 @@ export const DocumentsPage: React.FC = () => {
     return matchesSearch && matchesVisibility;
   });
 
+  // Reset to first page whenever the result set changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, visibilityFilter, pageSize]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredDocuments.length / pageSize));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginatedDocuments = filteredDocuments.slice(
+    (safePage - 1) * pageSize,
+    safePage * pageSize
+  );
+
   // Show error toast if there's an error
   useEffect(() => {
     if (error) {
@@ -251,20 +265,30 @@ export const DocumentsPage: React.FC = () => {
 
       {/* Documents Grid */}
       {!loading && filteredDocuments.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredDocuments.map((doc, index) => (
-            <div key={doc.id} data-tour={index === 0 ? 'document-card' : undefined}>
-              <DocumentCard
-                document={doc}
-                onView={handleViewDocument}
-                onEdit={handleEditDocument}
-                onDelete={handleDeleteClick}
-                onShare={handleShare}
-                onDuplicate={handleDuplicateDocument}
-              />
-            </div>
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {paginatedDocuments.map((doc, index) => (
+              <div key={doc.id} data-tour={index === 0 ? 'document-card' : undefined}>
+                <DocumentCard
+                  document={doc}
+                  onView={handleViewDocument}
+                  onEdit={handleEditDocument}
+                  onDelete={handleDeleteClick}
+                  onShare={handleShare}
+                  onDuplicate={handleDuplicateDocument}
+                />
+              </div>
+            ))}
+          </div>
+          <Pagination
+            currentPage={safePage}
+            totalItems={filteredDocuments.length}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={setPageSize}
+            itemLabel="documents"
+          />
+        </>
       )}
 
       {/* Create Document Modal */}
