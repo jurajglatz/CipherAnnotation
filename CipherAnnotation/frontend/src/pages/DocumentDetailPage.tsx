@@ -20,7 +20,7 @@ import {
 import toast from 'react-hot-toast';
 import { Caption, CocoVariant, Document, ExportFormat, Page, TfRecordVariant, YoloVariant } from '@/types';
 import { captionService, documentService, exportService, pageService } from '@/services';
-import { LoadingSpinner, Modal, ConfirmDialog } from '@/components/shared';
+import { LoadingSpinner, Modal, ConfirmDialog, Pagination } from '@/components/shared';
 import PageThumbnail from '@/components/documents/PageThumbnail';
 import { ShareDocumentModal } from '@/components/documents/ShareDocumentModal';
 import { AddPagesModal } from '@/components/documents/AddPagesModal';
@@ -99,6 +99,19 @@ export const DocumentDetailPage: React.FC = () => {
 
   const [showProcessed, setShowProcessed] = useState(true);
   const [showAnnotations, setShowAnnotations] = useState(true);
+  const [currentPagePage, setCurrentPagePage] = useState(1);
+  const [pagesPageSize, setPagesPageSize] = useState(12);
+
+  useEffect(() => {
+    setCurrentPagePage(1);
+  }, [pagesPageSize, pages.length]);
+
+  const totalPagesPages = Math.max(1, Math.ceil(pages.length / pagesPageSize));
+  const safePagesPage = Math.min(currentPagePage, totalPagesPages);
+  const paginatedPages = pages.slice(
+    (safePagesPage - 1) * pagesPageSize,
+    safePagesPage * pagesPageSize
+  );
 
   // Fetch document and pages on mount
   useEffect(() => {
@@ -527,31 +540,41 @@ export const DocumentDetailPage: React.FC = () => {
             )}
           </div>
         ) : (
-          <div
-            className={`${
-              viewMode === 'grid'
-                ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4'
-                : 'space-y-2'
-            }`}
-          >
-            {pages.map((page, index) => (
-              <div
-                key={page.id}
-                data-tour={index === 0 ? 'page-thumb' : undefined}
-                onClick={() =>
-                  navigate(`/documents/${documentId}/annotate/${page.id}`)
-                }
-              >
-                <PageThumbnail
-                  page={page}
-                  documentId={documentId!}
-                  showProcessingStatus={true}
-                  showProcessed={showProcessed}
-                  showAnnotations={showAnnotations}
-                />
-              </div>
-            ))}
-          </div>
+          <>
+            <div
+              className={`${
+                viewMode === 'grid'
+                  ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4'
+                  : 'space-y-2'
+              }`}
+            >
+              {paginatedPages.map((page, index) => (
+                <div
+                  key={page.id}
+                  data-tour={index === 0 ? 'page-thumb' : undefined}
+                  onClick={() =>
+                    navigate(`/documents/${documentId}/annotate/${page.id}`)
+                  }
+                >
+                  <PageThumbnail
+                    page={page}
+                    documentId={documentId!}
+                    showProcessingStatus={true}
+                    showProcessed={showProcessed}
+                    showAnnotations={showAnnotations}
+                  />
+                </div>
+              ))}
+            </div>
+            <Pagination
+              currentPage={safePagesPage}
+              totalItems={pages.length}
+              pageSize={pagesPageSize}
+              onPageChange={setCurrentPagePage}
+              onPageSizeChange={setPagesPageSize}
+              itemLabel="pages"
+            />
+          </>
         )}
       </div>
 
