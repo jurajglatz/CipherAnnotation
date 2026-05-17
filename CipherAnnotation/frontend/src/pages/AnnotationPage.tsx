@@ -13,6 +13,7 @@ import {
   AnnotationTreePanel,
   CaptionsPanel,
   PropertiesPanel,
+  MultiSelectPropertiesPanel,
   Toolbar,
   PreprocessPanel,
 } from '@/components/annotation';
@@ -547,6 +548,47 @@ export const AnnotationPage: React.FC = () => {
     [updateAnnotationRaw, pushCommand, resolveId]
   );
 
+  // Bulk caption reassignment for multi-selection. Each item gets an undo entry
+  // inside a single batch, so one undo reverts them all.
+  const handleBulkUpdateCaption = useCallback(
+    async (ids: string[], captionId: string) => {
+      if (ids.length === 0) return;
+      try {
+        await runInBatch(async () => {
+          for (const id of ids) {
+            const realId = resolveId(id);
+            const before = annotationsRef.current.find((a) => a.id === realId);
+            if (!before || before.captionId === captionId) continue;
+            const beforeData: UpdateAnnotationData = {
+              captionId: before.captionId,
+              type: before.type,
+              content: before.content,
+              transcription: before.transcription,
+              transcriptionRefId: before.transcriptionRefId ?? null,
+              orientation: before.orientation,
+              boundingBox: before.boundingBox,
+            };
+            const afterData: UpdateAnnotationData = { ...beforeData, captionId };
+            await updateAnnotationRaw(realId, afterData);
+            pushCommand({
+              undo: async () => {
+                await updateAnnotationRaw(resolveId(realId), beforeData);
+              },
+              redo: async () => {
+                await updateAnnotationRaw(resolveId(realId), afterData);
+              },
+            });
+          }
+        });
+        toast.success(`Caption applied to ${ids.length} annotations`);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Failed to update annotations');
+        throw error;
+      }
+    },
+    [runInBatch, resolveId, updateAnnotationRaw, pushCommand]
+  );
+
   // Caption mutations: thin wrappers returning void (CaptionsPanel expects Promise<void>).
   const handleAddCaption = useCallback(
     async (name: string) => {
@@ -692,14 +734,25 @@ export const AnnotationPage: React.FC = () => {
                 }}
                 readOnly={readOnly}
               />
-              <PropertiesPanel
-                annotation={selectedAnnotation}
-                captions={captions}
-                documentId={documentId || ''}
-                onUpdate={handleUpdateAnnotation}
-                onDelete={handleDeleteFromTree}
-                readOnly={readOnly}
-              />
+              {selectedIds.size > 1 ? (
+                <MultiSelectPropertiesPanel
+                  annotations={Array.from(selectedIds)
+                    .map((id) => byId.get(id))
+                    .filter((a): a is Annotation => !!a)}
+                  captions={captions}
+                  onBulkUpdateCaption={handleBulkUpdateCaption}
+                  readOnly={readOnly}
+                />
+              ) : (
+                <PropertiesPanel
+                  annotation={selectedAnnotation}
+                  captions={captions}
+                  documentId={documentId || ''}
+                  onUpdate={handleUpdateAnnotation}
+                  onDelete={handleDeleteFromTree}
+                  readOnly={readOnly}
+                />
+              )}
             </>
           )}
         </div>
