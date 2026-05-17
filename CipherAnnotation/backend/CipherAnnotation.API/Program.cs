@@ -6,6 +6,7 @@ using CipherAnnotation.Infrastructure.Services.AutoAnnotation;
 using CipherAnnotation.Infrastructure.Services.Documents;
 using CipherAnnotation.Infrastructure.Services.Export;
 using CipherAnnotation.Infrastructure.Services.ImageProcessing;
+using CipherAnnotation.Infrastructure.Services.Pages;
 using CipherAnnotation.Infrastructure.Services.Storage;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -44,6 +45,7 @@ builder.Services.AddScoped<IExportService, ExportService>();
 builder.Services.AddScoped<IFileStorageService, FileStorageService>();
 builder.Services.AddScoped<IAutoAnnotationService, AutoAnnotationService>();
 builder.Services.AddScoped<IDocumentService, DocumentService>();
+builder.Services.AddScoped<IPageService, PageService>();
 
 // Allow larger multipart uploads (images can be several MB each, and documents may contain 100+ pages)
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
