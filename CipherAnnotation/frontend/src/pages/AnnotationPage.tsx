@@ -741,7 +741,7 @@ export const AnnotationPage: React.FC = () => {
               onSave={preprocess.save}
               onReset={preprocess.reset}
               onClose={preprocess.close}
-              isSaving={preprocess.isSaving}
+              isSaving={preprocess.isSaving || preprocess.isApplyingToAll}
               isResetting={preprocess.isResetting}
               onUndo={preprocess.undo}
               onRedo={preprocess.redo}

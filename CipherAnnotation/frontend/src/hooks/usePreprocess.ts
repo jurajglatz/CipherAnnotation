@@ -55,15 +55,16 @@ export function usePreprocess({ documentId, pageId, pageCount, onPageRefetch }: 
 
   const confirmApplyToAll = async () => {
     if (!documentId || !applyAllPrompt) return;
+    const ops = applyAllPrompt.ops;
+    setApplyAllPrompt(null);
     try {
       setIsApplyingToAll(true);
-      const result = await pageService.applyPreprocessToAllPages(documentId, applyAllPrompt.ops);
+      const result = await pageService.applyPreprocessToAllPages(documentId, ops);
       if (result.failedCount > 0) {
         toast.error(`Applied to ${result.appliedCount} page(s), ${result.failedCount} failed`);
       } else {
         toast.success(`Applied to ${result.appliedCount} page(s)`);
       }
-      setApplyAllPrompt(null);
       await Promise.all([onPageRefetch(), fetchHistory()]);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to apply to all pages');
