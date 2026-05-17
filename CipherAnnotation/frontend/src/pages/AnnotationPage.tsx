@@ -103,6 +103,8 @@ export const AnnotationPage: React.FC = () => {
     boundingBox?: BoundingBox;
   } | null>(null);
   const [isAutoAnnotating, setIsAutoAnnotating] = useState(false);
+  const [autoAnnotateAllPrompt, setAutoAnnotateAllPrompt] = useState(false);
+  const [isAutoAnnotatingAll, setIsAutoAnnotatingAll] = useState(false);
 
   const fetchPageData = useCallback(async () => {
     if (!pageId || !documentId) return;
@@ -149,12 +151,40 @@ export const AnnotationPage: React.FC = () => {
       } else {
         toast.success(`Auto-annotated ${created.length} region${created.length === 1 ? '' : 's'}`);
       }
+      if (pageList.length > 1) setAutoAnnotateAllPrompt(true);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Auto-annotation failed');
     } finally {
       setIsAutoAnnotating(false);
     }
-  }, [pageId, isAutoAnnotating, refetchAnnotations, refetchCaptions]);
+  }, [pageId, isAutoAnnotating, refetchAnnotations, refetchCaptions, pageList.length]);
+
+  const dismissAutoAnnotateAll = useCallback(() => {
+    if (!isAutoAnnotatingAll) setAutoAnnotateAllPrompt(false);
+  }, [isAutoAnnotatingAll]);
+
+  const confirmAutoAnnotateAll = useCallback(async () => {
+    if (!documentId || isAutoAnnotatingAll) return;
+    try {
+      setIsAutoAnnotatingAll(true);
+      const result = await annotationService.autoAnnotateAll(documentId, {
+        excludePageId: pageId ?? undefined,
+      });
+      await Promise.all([refetchAnnotations(), refetchCaptions()]);
+      if (result.failedCount > 0) {
+        toast.error(`Auto-annotated ${result.appliedCount} page(s), ${result.failedCount} failed`);
+      } else {
+        toast.success(
+          `Auto-annotated ${result.appliedCount} page(s) (${result.totalCreated} region${result.totalCreated === 1 ? '' : 's'})`,
+        );
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Auto-annotate all pages failed');
+    } finally {
+      setIsAutoAnnotatingAll(false);
+      setAutoAnnotateAllPrompt(false);
+    }
+  }, [documentId, pageId, isAutoAnnotatingAll, refetchAnnotations, refetchCaptions]);
 
   // Keep selectedAnnotation reference in sync with the latest annotations array.
   useEffect(() => {
@@ -757,6 +787,17 @@ export const AnnotationPage: React.FC = () => {
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        isOpen={autoAnnotateAllPrompt}
+        onClose={dismissAutoAnnotateAll}
+        onConfirm={confirmAutoAnnotateAll}
+        title="Auto-annotate all pages?"
+        message={`Run auto-annotation on the remaining ${pageList.length - 1} page${pageList.length - 1 === 1 ? '' : 's'} of this document? Detections will be added on top of each page's existing annotations.`}
+        confirmText="All pages"
+        cancelText="Only this page"
+        isLoading={isAutoAnnotatingAll}
+      />
 
       <ConfirmDialog
         isOpen={preprocess.applyAllPrompt !== null}

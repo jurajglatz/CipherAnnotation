@@ -71,6 +71,16 @@ public class AnnotationsController : ControllerBase
         return result.ToActionResult();
     }
 
+    [HttpPost("api/documents/{documentId:guid}/auto-annotate")]
+    public async Task<IActionResult> AutoAnnotateAll(
+        Guid documentId,
+        [FromQuery] Guid? excludePageId,
+        CancellationToken ct = default)
+    {
+        var result = await _annotations.AutoAnnotateAllAsync(documentId, GetCurrentUserId(), excludePageId, ct);
+        return result.ToActionResult();
+    }
+
     private Guid GetCurrentUserId()
     {
         var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);

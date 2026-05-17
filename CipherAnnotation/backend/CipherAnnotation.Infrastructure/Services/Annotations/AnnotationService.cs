@@ -543,6 +543,52 @@ public class AnnotationService : IAnnotationService
         return ServiceResult<IEnumerable<AnnotationDto>>.Success(dtos);
     }
 
+    public async Task<ServiceResult<AutoAnnotateAllResponse>> AutoAnnotateAllAsync(
+        Guid documentId, Guid currentUserId, Guid? excludePageId = null,
+        CancellationToken ct = default)
+    {
+        if (!await UserCanEditDocumentAsync(documentId, currentUserId, ct))
+            return ServiceResult<AutoAnnotateAllResponse>.Forbidden();
+
+        var pageIds = await _db.Pages
+            .Where(p => p.DocumentId == documentId && (excludePageId == null || p.Id != excludePageId))
+            .OrderBy(p => p.PageNumber)
+            .Select(p => p.Id)
+            .ToListAsync(ct);
+
+        int applied = 0, failed = 0, totalCreated = 0;
+        foreach (var pageId in pageIds)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                var result = await AutoAnnotateAsync(pageId, currentUserId, ct);
+                if (result.IsSuccess)
+                {
+                    applied++;
+                    totalCreated += result.Value!.Count();
+                }
+                else
+                {
+                    failed++;
+                    _logger.LogWarning("Auto-annotate skipped page {PageId} during batch: {Error}", pageId, result.ErrorMessage);
+                }
+            }
+            catch (Exception ex)
+            {
+                failed++;
+                _logger.LogError(ex, "Auto-annotate failed for page {PageId} during batch.", pageId);
+            }
+        }
+
+        return ServiceResult<AutoAnnotateAllResponse>.Success(new AutoAnnotateAllResponse
+        {
+            AppliedCount = applied,
+            FailedCount = failed,
+            TotalCreated = totalCreated,
+        });
+    }
+
     // ----- public static helpers (kept for unit-test access) -----
 
     public static Dictionary<Guid, int> ComputeCaptionNumbers(IEnumerable<Annotation> annotations)
@@ -640,6 +686,14 @@ public class AnnotationService : IAnnotationService
                 p.Id == pageId &&
                 (p.Document!.OwnerId == userId
                  || p.Document.Shares.Any(s => s.UserId == userId && s.Permission == PermissionType.Edit)), ct);
+
+    private Task<bool> UserCanEditDocumentAsync(Guid documentId, Guid userId, CancellationToken ct) =>
+        userId == Guid.Empty
+            ? Task.FromResult(false)
+            : _db.Documents.AnyAsync(d =>
+                d.Id == documentId &&
+                (d.OwnerId == userId
+                 || d.Shares.Any(s => s.UserId == userId && s.Permission == PermissionType.Edit)), ct);
 
     private Task<bool> UserCanAccessDocumentAsync(Guid documentId, Guid userId, CancellationToken ct) =>
         userId == Guid.Empty
