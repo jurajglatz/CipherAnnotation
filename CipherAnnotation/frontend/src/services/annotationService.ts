@@ -25,6 +25,12 @@ export type UpdateAnnotationData = Partial<CreateAnnotationData> & {
   parentId?: string | null;
 };
 
+export interface AutoAnnotateAllResult {
+  appliedCount: number;
+  failedCount: number;
+  totalCreated: number;
+}
+
 class AnnotationService {
   async list(pageId: string): Promise<Annotation[]> {
     const res = await api.get<Annotation[]>(`/pages/${pageId}/annotations`);
@@ -66,6 +72,17 @@ class AnnotationService {
 
   async autoAnnotate(pageId: string): Promise<Annotation[]> {
     const res = await api.post<Annotation[]>(`/pages/${pageId}/auto-annotate`);
+    return res.data;
+  }
+
+  async autoAnnotateAll(
+    documentId: string,
+    opts: { excludePageId?: string } = {},
+  ): Promise<AutoAnnotateAllResult> {
+    const qs = opts.excludePageId ? `?excludePageId=${opts.excludePageId}` : '';
+    const res = await api.post<AutoAnnotateAllResult>(
+      `/documents/${documentId}/auto-annotate${qs}`,
+    );
     return res.data;
   }
 
