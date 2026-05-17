@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import { Plus, Search, Lock, Globe, Trash2, Share2, Eye, Edit3 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useDocuments } from '@/hooks/useDocuments';
+import { useTour } from '@/hooks/useTour';
 import { Document, Visibility } from '@/types';
 import { documentService } from '@/services';
 import { LoadingSpinner, Modal, ConfirmDialog } from '@/components/shared';
@@ -20,6 +21,7 @@ type VisibilityFilter = 'All' | 'Private' | 'Public';
 export const DocumentsPage: React.FC = () => {
   const navigate = useNavigate();
   const { documents, loading, error, fetchDocuments, deleteDocument } = useDocuments();
+  useTour('documents');
 
   // Local state
   const [searchTerm, setSearchTerm] = useState('');
@@ -188,6 +190,7 @@ export const DocumentsPage: React.FC = () => {
             </p>
           </div>
           <button
+            data-tour="new-document"
             onClick={() => setIsCreateModalOpen(true)}
             className="group inline-flex items-center gap-2 px-5 py-3 bg-ink-900 hover:bg-primary-700 text-parchment-50 font-semibold rounded-md shadow-lg shadow-ink-900/20 transition-all hover:shadow-xl hover:-translate-y-0.5 whitespace-nowrap"
           >
@@ -197,7 +200,7 @@ export const DocumentsPage: React.FC = () => {
         </div>
 
         {/* Search and Filter Bar */}
-        <div className="flex flex-col sm:flex-row gap-3">
+        <div data-tour="documents-search" className="flex flex-col sm:flex-row gap-3">
           <div className="flex-1 relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-sepia-600" />
             <input
@@ -249,16 +252,17 @@ export const DocumentsPage: React.FC = () => {
       {/* Documents Grid */}
       {!loading && filteredDocuments.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredDocuments.map((doc) => (
-            <DocumentCard
-              key={doc.id}
-              document={doc}
-              onView={handleViewDocument}
-              onEdit={handleEditDocument}
-              onDelete={handleDeleteClick}
-              onShare={handleShare}
-              onDuplicate={handleDuplicateDocument}
-            />
+          {filteredDocuments.map((doc, index) => (
+            <div key={doc.id} data-tour={index === 0 ? 'document-card' : undefined}>
+              <DocumentCard
+                document={doc}
+                onView={handleViewDocument}
+                onEdit={handleEditDocument}
+                onDelete={handleDeleteClick}
+                onShare={handleShare}
+                onDuplicate={handleDuplicateDocument}
+              />
+            </div>
           ))}
         </div>
       )}

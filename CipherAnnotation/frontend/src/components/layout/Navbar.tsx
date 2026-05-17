@@ -5,8 +5,15 @@
 
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Menu, X, LogOut, User, Key } from 'lucide-react';
+import { Menu, X, LogOut, User, Key, HelpCircle } from 'lucide-react';
 import { useAuth } from '@/hooks';
+import { startTour, TourGroup } from '@/tutorial/tour';
+
+const groupForPath = (pathname: string): TourGroup => {
+  if (/^\/documents\/[^/]+\/annotate\//.test(pathname)) return 'annotation';
+  if (/^\/documents\/[^/]+/.test(pathname)) return 'document-detail';
+  return 'documents';
+};
 
 export const Navbar: React.FC = () => {
   const { user, isAuthenticated, logout } = useAuth();
@@ -89,6 +96,25 @@ export const Navbar: React.FC = () => {
           </div>
 
           <div className="hidden md:flex items-center gap-3">
+            {isAuthenticated && (
+              <button
+                onClick={() => {
+                  closeMenus();
+                  const group = groupForPath(location.pathname);
+                  if (group === 'documents' && location.pathname !== '/documents') {
+                    navigate('/documents');
+                    setTimeout(() => startTour('documents'), 50);
+                  } else {
+                    startTour(group);
+                  }
+                }}
+                title="Start tutorial"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-ink-900/70 hover:text-ink-900 hover:bg-ink-900/5 transition-colors border border-transparent hover:border-sepia-600/20 text-sm font-medium"
+              >
+                <HelpCircle className="w-4 h-4" />
+                Tutorial
+              </button>
+            )}
             {isAuthenticated && user ? (
               <div className="relative">
                 <button

@@ -19,7 +19,7 @@ import {
 } from '@/components/annotation';
 import { findDeepestContainer, isDescendantOf } from '@/components/annotation/AnnotationCanvas';
 import { pageService, annotationService, documentService } from '@/services';
-import { useAnnotations, useCaptions } from '@/hooks';
+import { useAnnotations, useCaptions, useTour } from '@/hooks';
 import {
   Page,
   Annotation,
@@ -42,6 +42,7 @@ export const AnnotationPage: React.FC = () => {
     pageId: string;
   }>();
   const navigate = useNavigate();
+  useTour('annotation');
 
   const [page, setPage] = useState<Page | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -868,6 +869,7 @@ export const AnnotationPage: React.FC = () => {
 
   return (
     <div className="h-[calc(100vh-4rem)] flex flex-col bg-parchment-100">
+      <div data-tour="annotation-toolbar">
       <Toolbar
         currentTool={readOnly ? 'select' : currentTool}
         zoom={zoom}
@@ -890,6 +892,7 @@ export const AnnotationPage: React.FC = () => {
         isAutoAnnotating={isAutoAnnotating}
         readOnly={readOnly}
       />
+      </div>
 
       <div className="flex flex-1 overflow-hidden">
         {/* Left sidebar: Annotation tree */}
@@ -909,7 +912,7 @@ export const AnnotationPage: React.FC = () => {
         </div>
 
         {/* Center: canvas */}
-        <div className="flex-1 bg-parchment-200/50 overflow-hidden">
+        <div data-tour="annotation-canvas" className="flex-1 bg-parchment-200/50 overflow-hidden">
           {page && (
             <AnnotationCanvas
               page={page}
@@ -937,7 +940,7 @@ export const AnnotationPage: React.FC = () => {
         </div>
 
         {/* Right sidebar: Captions + Properties (or Preprocess panel) */}
-        <div className="w-72 border-l border-sepia-600/20 bg-parchment-50 overflow-y-auto flex flex-col">
+        <div data-tour="annotation-side-panel" className="w-72 border-l border-sepia-600/20 bg-parchment-50 overflow-y-auto flex flex-col">
           {isPreprocessOpen ? (
             <PreprocessPanel
               operations={preprocessOps}
