@@ -11,21 +11,15 @@ namespace CipherAnnotation.Infrastructure.Services.Documents;
 
 public class DocumentService : IDocumentService
 {
-    private readonly IDocumentRepository _documentRepository;
-    private readonly IUserRepository _userRepository;
     private readonly IFileStorageService _fileStorage;
     private readonly AppDbContext _dbContext;
     private readonly ILogger<DocumentService> _logger;
 
     public DocumentService(
-        IDocumentRepository documentRepository,
-        IUserRepository userRepository,
         IFileStorageService fileStorage,
         AppDbContext dbContext,
         ILogger<DocumentService> logger)
     {
-        _documentRepository = documentRepository;
-        _userRepository = userRepository;
         _fileStorage = fileStorage;
         _dbContext = dbContext;
         _logger = logger;
@@ -34,8 +28,20 @@ public class DocumentService : IDocumentService
     public async Task<ServiceResult<IEnumerable<DocumentDto>>> GetUserDocumentsAsync(
         Guid userId, CancellationToken ct = default)
     {
-        var owned = await _documentRepository.GetByOwnerIdAsync(userId, ct);
-        var shared = await _documentRepository.GetSharedWithUserAsync(userId, ct);
+        var owned = await _dbContext.Documents
+            .Where(d => d.OwnerId == userId)
+            .IncludeForListing()
+            .OrderByDescending(d => d.CreatedAt)
+            .ToListAsync(ct);
+
+        var shared = await _dbContext.DocumentShares
+            .Where(ds => ds.UserId == userId)
+            .Include(ds => ds.Document!).ThenInclude(d => d.Owner)
+            .Include(ds => ds.Document!).ThenInclude(d => d.Pages)
+            .Select(ds => ds.Document!)
+            .OrderByDescending(d => d.CreatedAt)
+            .ToListAsync(ct);
+
         var all = owned.Concat(shared).DistinctBy(d => d.Id).Select(d => MapToDto(d, userId));
         return ServiceResult<IEnumerable<DocumentDto>>.Success(all);
     }
@@ -43,7 +49,11 @@ public class DocumentService : IDocumentService
     public async Task<ServiceResult<IEnumerable<DocumentDto>>> GetPublicDocumentsAsync(
         Guid? currentUserId, CancellationToken ct = default)
     {
-        var docs = await _documentRepository.GetPublicDocumentsAsync(ct);
+        var docs = await _dbContext.Documents
+            .Where(d => d.Visibility == Visibility.Public)
+            .IncludeForListing()
+            .OrderByDescending(d => d.CreatedAt)
+            .ToListAsync(ct);
         var dtos = docs.Select(d => MapToDto(d, currentUserId ?? Guid.Empty));
         return ServiceResult<IEnumerable<DocumentDto>>.Success(dtos);
     }
@@ -51,7 +61,8 @@ public class DocumentService : IDocumentService
     public async Task<ServiceResult<DocumentDto>> GetByIdAsync(
         Guid documentId, Guid currentUserId, CancellationToken ct = default)
     {
-        var document = await _documentRepository.GetByIdAsync(documentId, ct);
+        var document = await _dbContext.Documents.IncludeDetails()
+            .FirstOrDefaultAsync(d => d.Id == documentId, ct);
         if (document == null)
         {
             _logger.LogWarning("Document {DocumentId} not found.", documentId);
@@ -97,7 +108,7 @@ public class DocumentService : IDocumentService
             UpdatedAt = DateTime.UtcNow,
         };
 
-        await _documentRepository.AddAsync(document, ct);
+        await _dbContext.Documents.AddAsync(document, ct);
 
         int pageNumber = 1;
         foreach (var file in files)
@@ -138,12 +149,13 @@ public class DocumentService : IDocumentService
             });
         }
 
-        await _documentRepository.SaveChangesAsync(ct);
+        await _dbContext.SaveChangesAsync(ct);
 
         _logger.LogInformation("Document {DocumentId} created by user {UserId} with {PageCount} pages.",
             document.Id, ownerId, pageNumber - 1);
 
-        var reloaded = await _documentRepository.GetByIdAsync(document.Id, ct);
+        var reloaded = await _dbContext.Documents.IncludeDetails()
+            .FirstOrDefaultAsync(d => d.Id == document.Id, ct);
         return ServiceResult<DocumentDto>.Success(MapToDto(reloaded ?? document, ownerId));
     }
 
@@ -151,7 +163,8 @@ public class DocumentService : IDocumentService
         Guid documentId, Guid currentUserId,
         UpdateDocumentRequest request, CancellationToken ct = default)
     {
-        var document = await _documentRepository.GetByIdAsync(documentId, ct);
+        var document = await _dbContext.Documents.IncludeDetails()
+            .FirstOrDefaultAsync(d => d.Id == documentId, ct);
         if (document == null)
         {
             _logger.LogWarning("Document {DocumentId} not found.", documentId);
@@ -182,8 +195,7 @@ public class DocumentService : IDocumentService
         }
 
         document.UpdatedAt = DateTime.UtcNow;
-        _documentRepository.Update(document);
-        await _documentRepository.SaveChangesAsync(ct);
+        await _dbContext.SaveChangesAsync(ct);
 
         _logger.LogInformation("Document {DocumentId} updated by user {UserId}.", documentId, currentUserId);
 
@@ -193,7 +205,8 @@ public class DocumentService : IDocumentService
     public async Task<ServiceResult> DeleteAsync(
         Guid documentId, Guid currentUserId, CancellationToken ct = default)
     {
-        var document = await _documentRepository.GetByIdAsync(documentId, ct);
+        var document = await _dbContext.Documents.IncludeDetails()
+            .FirstOrDefaultAsync(d => d.Id == documentId, ct);
         if (document == null)
         {
             _logger.LogWarning("Document {DocumentId} not found.", documentId);
@@ -207,8 +220,8 @@ public class DocumentService : IDocumentService
             return ServiceResult.Forbidden();
         }
 
-        _documentRepository.Delete(document);
-        await _documentRepository.SaveChangesAsync(ct);
+        _dbContext.Documents.Remove(document);
+        await _dbContext.SaveChangesAsync(ct);
 
         _logger.LogInformation("Document {DocumentId} deleted by user {UserId}.", documentId, currentUserId);
         return ServiceResult.Success();
@@ -218,7 +231,8 @@ public class DocumentService : IDocumentService
         Guid documentId, Guid currentUserId,
         ShareDocumentRequest request, CancellationToken ct = default)
     {
-        var document = await _documentRepository.GetByIdAsync(documentId, ct);
+        var document = await _dbContext.Documents.IncludeDetails()
+            .FirstOrDefaultAsync(d => d.Id == documentId, ct);
         if (document == null)
         {
             _logger.LogWarning("Document {DocumentId} not found.", documentId);
@@ -232,7 +246,9 @@ public class DocumentService : IDocumentService
             return ServiceResult<DocumentShareDto>.Forbidden();
         }
 
-        var sharedWithUser = await _userRepository.GetByEmailAsync(request.UserEmail, ct);
+        var emailLower = request.UserEmail.ToLower();
+        var sharedWithUser = await _dbContext.Users
+            .FirstOrDefaultAsync(u => u.Email.ToLower() == emailLower, ct);
         if (sharedWithUser == null)
         {
             _logger.LogWarning("User with email {Email} not found.", request.UserEmail);
@@ -277,7 +293,8 @@ public class DocumentService : IDocumentService
     public async Task<ServiceResult<IEnumerable<DocumentShareDto>>> GetSharesAsync(
         Guid documentId, Guid currentUserId, CancellationToken ct = default)
     {
-        var document = await _documentRepository.GetByIdAsync(documentId, ct);
+        var document = await _dbContext.Documents.IncludeDetails()
+            .FirstOrDefaultAsync(d => d.Id == documentId, ct);
         if (document == null)
             return ServiceResult<IEnumerable<DocumentShareDto>>.NotFound("Document not found.");
 
@@ -300,7 +317,8 @@ public class DocumentService : IDocumentService
     public async Task<ServiceResult> RemoveShareAsync(
         Guid documentId, Guid shareId, Guid currentUserId, CancellationToken ct = default)
     {
-        var document = await _documentRepository.GetByIdAsync(documentId, ct);
+        var document = await _dbContext.Documents.IncludeDetails()
+            .FirstOrDefaultAsync(d => d.Id == documentId, ct);
         if (document == null)
         {
             _logger.LogWarning("Document {DocumentId} not found.", documentId);
@@ -322,7 +340,7 @@ public class DocumentService : IDocumentService
         }
 
         _dbContext.DocumentShares.Remove(share);
-        await _documentRepository.SaveChangesAsync(ct);
+        await _dbContext.SaveChangesAsync(ct);
 
         _logger.LogInformation("Share {ShareId} for document {DocumentId} removed by user {UserId}.",
             shareId, documentId, currentUserId);
@@ -446,7 +464,8 @@ public class DocumentService : IDocumentService
         _logger.LogInformation("Document {SourceId} duplicated as {NewId} by user {UserId}.",
             documentId, newDoc.Id, currentUserId);
 
-        var reloaded = await _documentRepository.GetByIdAsync(newDoc.Id, ct);
+        var reloaded = await _dbContext.Documents.IncludeDetails()
+            .FirstOrDefaultAsync(d => d.Id == newDoc.Id, ct);
         return ServiceResult<DocumentDto>.Success(MapToDto(reloaded ?? newDoc, currentUserId));
     }
 

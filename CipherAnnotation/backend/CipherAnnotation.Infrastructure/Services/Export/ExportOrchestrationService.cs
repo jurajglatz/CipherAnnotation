@@ -5,25 +5,31 @@ using CipherAnnotation.Core.DTOs.Export;
 using CipherAnnotation.Core.Entities;
 using CipherAnnotation.Core.Enums;
 using CipherAnnotation.Core.Interfaces;
+using CipherAnnotation.Infrastructure.Data;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace CipherAnnotation.Infrastructure.Services.Export;
 
 public class ExportOrchestrationService : IExportOrchestrationService
 {
-    private readonly IDocumentRepository _documentRepository;
+    private readonly AppDbContext _dbContext;
     private readonly IExportService _exportService;
     private readonly ILogger<ExportOrchestrationService> _logger;
 
     public ExportOrchestrationService(
-        IDocumentRepository documentRepository,
+        AppDbContext dbContext,
         IExportService exportService,
         ILogger<ExportOrchestrationService> logger)
     {
-        _documentRepository = documentRepository;
+        _dbContext = dbContext;
         _exportService = exportService;
         _logger = logger;
     }
+
+    private Task<Document?> LoadDocumentAsync(Guid documentId, CancellationToken ct) =>
+        _dbContext.Documents.IncludeDetails()
+            .FirstOrDefaultAsync(d => d.Id == documentId, ct);
 
     public Task<ServiceResult<ExportArtifact>> ExportCocoAsync(
         Guid currentUserId, ExportRequest request, CancellationToken ct = default) =>
@@ -84,7 +90,7 @@ public class ExportOrchestrationService : IExportOrchestrationService
         if (file == null || file.Content.Length == 0)
             return ServiceResult<ImportResult>.BadRequest("COCO JSON file is required.");
 
-        var document = await _documentRepository.GetByIdAsync(documentId, ct);
+        var document = await LoadDocumentAsync(documentId, ct);
         if (document == null) return ServiceResult<ImportResult>.NotFound("Document not found.");
 
         var tempFolder = MakeTempFolder("temp_imports");
@@ -112,7 +118,7 @@ public class ExportOrchestrationService : IExportOrchestrationService
         if (files == null || files.Count == 0)
             return ServiceResult<ImportResult>.BadRequest("YOLO format files are required.");
 
-        var document = await _documentRepository.GetByIdAsync(documentId, ct);
+        var document = await LoadDocumentAsync(documentId, ct);
         if (document == null) return ServiceResult<ImportResult>.NotFound("Document not found.");
 
         var tempFolder = MakeTempFolder("temp_imports");
@@ -150,7 +156,7 @@ public class ExportOrchestrationService : IExportOrchestrationService
 
         // Current behaviour exports only the first document (preserved from controller).
         var documentId = request.DocumentIds[0];
-        var document = await _documentRepository.GetByIdAsync(documentId, ct);
+        var document = await LoadDocumentAsync(documentId, ct);
         if (document == null)
             return ServiceResult<ExportArtifact>.NotFound($"Document {documentId} not found.");
         if (!CanAccess(document, currentUserId))

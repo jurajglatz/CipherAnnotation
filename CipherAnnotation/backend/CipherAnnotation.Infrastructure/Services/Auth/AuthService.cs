@@ -16,18 +16,15 @@ namespace CipherAnnotation.Infrastructure.Services.Auth;
 
 public class AuthService : IAuthService
 {
-    private readonly IUserRepository _userRepository;
     private readonly AppDbContext _dbContext;
     private readonly IConfiguration _configuration;
     private readonly ILogger<AuthService> _logger;
 
     public AuthService(
-        IUserRepository userRepository,
         AppDbContext dbContext,
         IConfiguration configuration,
         ILogger<AuthService> logger)
     {
-        _userRepository = userRepository;
         _dbContext = dbContext;
         _configuration = configuration;
         _logger = logger;
@@ -37,7 +34,9 @@ public class AuthService : IAuthService
         string email, string password, string name,
         CancellationToken cancellationToken = default)
     {
-        var existingUser = await _userRepository.GetByEmailAsync(email, cancellationToken);
+        var emailLower = email.ToLower();
+        var existingUser = await _dbContext.Users
+            .FirstOrDefaultAsync(u => u.Email.ToLower() == emailLower, cancellationToken);
         if (existingUser != null)
             throw new InvalidOperationException($"A user with email '{email}' already exists.");
 
@@ -51,8 +50,8 @@ public class AuthService : IAuthService
             CreatedAt = DateTime.UtcNow,
         };
 
-        await _userRepository.AddAsync(user, cancellationToken);
-        await _userRepository.SaveChangesAsync(cancellationToken);
+        await _dbContext.Users.AddAsync(user, cancellationToken);
+        await _dbContext.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("User registered successfully: {Email}", email);
         return user;
@@ -62,7 +61,9 @@ public class AuthService : IAuthService
         string email, string password,
         CancellationToken cancellationToken = default)
     {
-        var user = await _userRepository.GetByEmailAsync(email, cancellationToken);
+        var emailLower = email.ToLower();
+        var user = await _dbContext.Users
+            .FirstOrDefaultAsync(u => u.Email.ToLower() == emailLower, cancellationToken);
         if (user == null) return null;
         if (string.IsNullOrEmpty(user.PasswordHash) ||
             !BCrypt.Net.BCrypt.Verify(password, user.PasswordHash))
@@ -76,8 +77,21 @@ public class AuthService : IAuthService
     {
         try
         {
-            var payload = await GoogleJsonWebSignature.ValidateAsync(googleToken);
-            var user = await _userRepository.GetByEmailAsync(payload.Email, cancellationToken);
+            var clientId = _configuration["Google:ClientId"];
+            var settings = new GoogleJsonWebSignature.ValidationSettings
+            {
+                Audience = string.IsNullOrWhiteSpace(clientId) ? null : new[] { clientId },
+            };
+            var payload = await GoogleJsonWebSignature.ValidateAsync(googleToken, settings);
+
+            // Without this check, a token for an unverified address could be
+            // used to take over an existing password account on the same email.
+            if (!payload.EmailVerified)
+                throw new InvalidOperationException("Google account email is not verified.");
+
+            var emailLower = payload.Email.ToLower();
+            var user = await _dbContext.Users
+                .FirstOrDefaultAsync(u => u.Email.ToLower() == emailLower, cancellationToken);
             if (user != null) return user;
 
             var newUser = new User
@@ -91,8 +105,8 @@ public class AuthService : IAuthService
                 CreatedAt = DateTime.UtcNow,
             };
 
-            await _userRepository.AddAsync(newUser, cancellationToken);
-            await _userRepository.SaveChangesAsync(cancellationToken);
+            await _dbContext.Users.AddAsync(newUser, cancellationToken);
+            await _dbContext.SaveChangesAsync(cancellationToken);
             return newUser;
         }
         catch (Exception ex)
@@ -152,7 +166,7 @@ public class AuthService : IAuthService
             return null;
         }
 
-        var user = await _userRepository.GetByIdAsync(stored.UserId, cancellationToken);
+        var user = await _dbContext.Users.FindAsync(new object[] { stored.UserId }, cancellationToken);
         if (user == null) return null;
 
         var (accessToken, expiresAt) = GenerateAccessToken(user);
