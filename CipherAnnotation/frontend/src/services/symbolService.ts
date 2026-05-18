@@ -47,6 +47,15 @@ class SymbolService {
     return response.data;
   }
 
+  async updateImage(id: string, pngBlob: Blob, fileName = 'symbol.png'): Promise<Symbol> {
+    const fd = new FormData();
+    fd.append('pngFile', pngBlob, fileName);
+    const response = await api.put<Symbol>(`/symbols/${id}/image`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  }
+
   async update(id: string, content: string | null): Promise<Symbol> {
     const response = await api.put<Symbol>(`/symbols/${id}`, { content });
     return response.data;

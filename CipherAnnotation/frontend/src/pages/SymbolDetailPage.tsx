@@ -7,13 +7,14 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Save, Trash2 } from 'lucide-react';
+import { ArrowLeft, Pencil, Save, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Symbol as SymbolEntity, SymbolOccurrence } from '@/types';
 import { symbolService } from '@/services';
 import { useAuth } from '@/hooks';
-import { LoadingSpinner, ConfirmDialog } from '@/components/shared';
+import { LoadingSpinner, ConfirmDialog, Modal } from '@/components/shared';
 import SymbolImage from '@/components/annotation/SymbolImage';
+import SymbolWhiteboard from '@/components/annotation/SymbolWhiteboard';
 import OccurrenceThumbnail from '@/components/annotation/OccurrenceThumbnail';
 
 export const SymbolDetailPage: React.FC = () => {
@@ -27,6 +28,9 @@ export const SymbolDetailPage: React.FC = () => {
   const [contentDraft, setContentDraft] = useState('');
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [editingImage, setEditingImage] = useState(false);
+  const [savingImage, setSavingImage] = useState(false);
+  const [imageVersion, setImageVersion] = useState(0);
 
   const isOwner = useMemo(
     () => !!symbol && !!user && symbol.ownerUserId === user.id,
@@ -65,6 +69,22 @@ export const SymbolDetailPage: React.FC = () => {
     }
   }
 
+  async function saveImage(png: Blob) {
+    if (!symbolId) return;
+    try {
+      setSavingImage(true);
+      const updated = await symbolService.updateImage(symbolId, png);
+      setSymbol(updated);
+      setImageVersion((v) => v + 1);
+      setEditingImage(false);
+      toast.success('Drawing updated');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Update failed');
+    } finally {
+      setSavingImage(false);
+    }
+  }
+
   async function deleteSymbol() {
     if (!symbolId) return;
     try {
@@ -97,8 +117,24 @@ export const SymbolDetailPage: React.FC = () => {
       </Link>
 
       <div className="grid md:grid-cols-[256px_1fr] gap-6 mb-8">
-        <div className="bg-white border border-sepia-600/30 rounded-md p-2 flex items-center justify-center" style={{ height: 256 }}>
-          <SymbolImage symbolId={symbol.id} alt={symbol.content ?? 'symbol'} className="max-w-full max-h-full object-contain" />
+        <div className="relative bg-white border border-sepia-600/30 rounded-md p-2 flex items-center justify-center" style={{ height: 256 }}>
+          <SymbolImage
+            key={imageVersion}
+            symbolId={symbol.id}
+            alt={symbol.content ?? 'symbol'}
+            className="max-w-full max-h-full object-contain"
+          />
+          {isOwner && (
+            <button
+              type="button"
+              onClick={() => setEditingImage(true)}
+              title="Redraw symbol"
+              aria-label="Redraw symbol"
+              className="absolute top-2 right-2 p-1.5 rounded-md bg-parchment-50/90 border border-sepia-600/40 text-sepia-700 hover:text-ink-900 hover:bg-parchment-50 shadow-sm"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
 
         <div className="space-y-3">
@@ -177,6 +213,19 @@ export const SymbolDetailPage: React.FC = () => {
           </div>
         )}
       </section>
+
+      <Modal
+        isOpen={editingImage}
+        onClose={() => !savingImage && setEditingImage(false)}
+        title="Redraw symbol"
+        size="md"
+      >
+        <SymbolWhiteboard
+          onSave={saveImage}
+          onCancel={() => setEditingImage(false)}
+          busy={savingImage}
+        />
+      </Modal>
 
       <ConfirmDialog
         isOpen={confirmDelete}
