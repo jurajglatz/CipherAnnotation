@@ -45,6 +45,7 @@ public class DocumentRepository : GenericRepository<Document>, IDocumentReposito
     {
         return await _dbSet
             .Where(d => d.OwnerId == ownerId)
+            .Include(d => d.Owner)
             .Include(d => d.Pages)
             .OrderByDescending(d => d.CreatedAt)
             .ToListAsync(cancellationToken);

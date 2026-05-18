@@ -143,7 +143,8 @@ public class DocumentService : IDocumentService
         _logger.LogInformation("Document {DocumentId} created by user {UserId} with {PageCount} pages.",
             document.Id, ownerId, pageNumber - 1);
 
-        return ServiceResult<DocumentDto>.Success(MapToDto(document, ownerId));
+        var reloaded = await _documentRepository.GetByIdAsync(document.Id, ct);
+        return ServiceResult<DocumentDto>.Success(MapToDto(reloaded ?? document, ownerId));
     }
 
     public async Task<ServiceResult<DocumentDto>> UpdateAsync(
@@ -491,7 +492,9 @@ public class DocumentService : IDocumentService
             Language = document.Language,
             Visibility = document.Visibility.ToString(),
             OwnerId = document.OwnerId,
-            OwnerName = document.Owner?.Name ?? "Unknown",
+            OwnerName = document.Owner?.Name
+                ?? throw new InvalidOperationException(
+                    $"Document {document.Id} was mapped to a DTO without its Owner navigation loaded; the caller must Include(d => d.Owner)."),
             CreatedAt = document.CreatedAt,
             UpdatedAt = document.UpdatedAt,
             PageCount = document.Pages?.Count ?? 0,
