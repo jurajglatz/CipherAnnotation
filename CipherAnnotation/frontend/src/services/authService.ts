@@ -1,6 +1,8 @@
 /**
  * Authentication service
- * Manages access/refresh tokens and exposes login/register/refresh/logout.
+ * Manages access tokens (in memory + localStorage for survival across reloads)
+ * and exposes login/register/refresh/logout. The refresh token lives in an
+ * httpOnly Secure SameSite=Strict cookie set by the API — JS never sees it.
  */
 
 import axios from 'axios';
@@ -8,21 +10,25 @@ import api from './api';
 import { AuthResponse, LoginRequest, RegisterRequest, User } from '../types';
 
 const ACCESS_KEY = 'accessToken';
-const REFRESH_KEY = 'refreshToken';
 const EXPIRES_KEY = 'accessTokenExpiresAt';
 const USER_KEY = 'user';
 const LEGACY_TOKEN_KEY = 'authToken';
+const LEGACY_REFRESH_KEY = 'refreshToken';
 
 // Separate axios instance so /auth/refresh isn't intercepted by api.ts.
+// withCredentials lets the browser attach the refresh cookie on cross-origin
+// dev requests (Vite on :5173 calling the API on :5000).
 const bareApi = axios.create({
   baseURL: '/api',
   headers: { 'Content-Type': 'application/json' },
+  withCredentials: true,
 });
 
 class AuthService {
   constructor() {
-    // Drop any leftover from the pre-refresh-token version.
+    // Drop leftovers from older versions that stored the refresh token in JS.
     localStorage.removeItem(LEGACY_TOKEN_KEY);
+    localStorage.removeItem(LEGACY_REFRESH_KEY);
   }
 
   async login(data: LoginRequest): Promise<AuthResponse> {
@@ -46,36 +52,28 @@ class AuthService {
   }
 
   /**
-   * Exchange the current refresh token for a fresh pair.
-   * Persists the new tokens. Throws on failure.
+   * Exchange the refresh cookie for a fresh access token. Throws on failure.
    */
   async refresh(): Promise<AuthResponse> {
-    const refreshToken = this.getRefreshToken();
-    if (!refreshToken) throw new Error('No refresh token available');
-
-    const response = await bareApi.post<AuthResponse>('/auth/refresh', { refreshToken });
+    const response = await bareApi.post<AuthResponse>('/auth/refresh');
     this.saveAuth(response.data);
     return response.data;
   }
 
   /**
-   * Best-effort: revoke the refresh token server-side, then clear local storage.
+   * Best-effort: revoke the refresh cookie server-side, then clear local state.
    */
   async logout(): Promise<void> {
-    const refreshToken = this.getRefreshToken();
-    if (refreshToken) {
-      try {
-        await bareApi.post('/auth/logout', { refreshToken });
-      } catch {
-        // Ignore — we're clearing local state regardless.
-      }
+    try {
+      await bareApi.post('/auth/logout');
+    } catch {
+      // Ignore — we're clearing local state regardless.
     }
     this.clear();
   }
 
   saveAuth(response: AuthResponse): void {
     localStorage.setItem(ACCESS_KEY, response.accessToken);
-    localStorage.setItem(REFRESH_KEY, response.refreshToken);
     localStorage.setItem(EXPIRES_KEY, response.accessTokenExpiresAt);
     localStorage.setItem(USER_KEY, JSON.stringify(response.user));
   }
@@ -86,17 +84,12 @@ class AuthService {
 
   clear(): void {
     localStorage.removeItem(ACCESS_KEY);
-    localStorage.removeItem(REFRESH_KEY);
     localStorage.removeItem(EXPIRES_KEY);
     localStorage.removeItem(USER_KEY);
   }
 
   getAccessToken(): string | null {
     return localStorage.getItem(ACCESS_KEY);
-  }
-
-  getRefreshToken(): string | null {
-    return localStorage.getItem(REFRESH_KEY);
   }
 
   /** Returns the access-token expiry as epoch ms, or null. */

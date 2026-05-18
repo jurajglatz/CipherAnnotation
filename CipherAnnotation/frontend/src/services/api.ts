@@ -14,6 +14,9 @@ const REFRESH_LEEWAY_MS = 30_000;
 const api: AxiosInstance = axios.create({
   baseURL: '/api',
   headers: { 'Content-Type': 'application/json' },
+  // Needed when api.ts is used in 401-retry paths that hit /auth/refresh.
+  // Other endpoints ignore the cookie because Path=/api/auth.
+  withCredentials: true,
 });
 
 let refreshPromise: Promise<string> | null = null;
@@ -24,7 +27,6 @@ async function ensureFreshAccessToken(): Promise<string | null> {
 
   if (!access) return null;
   if (expiresAt && Date.now() < expiresAt - REFRESH_LEEWAY_MS) return access;
-  if (!authService.getRefreshToken()) return access;
 
   if (!refreshPromise) {
     refreshPromise = authService

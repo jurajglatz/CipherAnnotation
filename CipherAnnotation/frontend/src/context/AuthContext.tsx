@@ -60,7 +60,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const handleAuthResponse = (response: {
     accessToken: string;
-    refreshToken: string;
     accessTokenExpiresAt: string;
     user: User;
   }) => {
