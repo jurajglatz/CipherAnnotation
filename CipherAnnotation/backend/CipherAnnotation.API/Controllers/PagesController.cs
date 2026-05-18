@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using CipherAnnotation.API.Extensions;
 using CipherAnnotation.API.Validation;
 using CipherAnnotation.Core.Common;
@@ -28,7 +27,7 @@ public class PagesController : ControllerBase
     [ProducesResponseType(typeof(IEnumerable<PageDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetDocumentPagesAsync(Guid documentId, CancellationToken ct = default)
     {
-        var result = await _pages.GetDocumentPagesAsync(documentId, GetCurrentUserId(), ct);
+        var result = await _pages.GetDocumentPagesAsync(documentId, User.GetUserId(), ct);
         return result.ToActionResult();
     }
 
@@ -36,7 +35,7 @@ public class PagesController : ControllerBase
     [ProducesResponseType(typeof(PageDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetPageByIdAsync(Guid documentId, Guid pageId, CancellationToken ct = default)
     {
-        var result = await _pages.GetPageByIdAsync(documentId, pageId, GetCurrentUserId(), ct);
+        var result = await _pages.GetPageByIdAsync(documentId, pageId, User.GetUserId(), ct);
         return result.ToActionResult();
     }
 
@@ -48,7 +47,7 @@ public class PagesController : ControllerBase
         CancellationToken ct = default)
     {
         if (!ModelState.IsValid) return BadRequest(ModelState);
-        var result = await _pages.PreprocessPageAsync(documentId, pageId, GetCurrentUserId(), request.Operations, ct);
+        var result = await _pages.PreprocessPageAsync(documentId, pageId, User.GetUserId(), request.Operations, ct);
         return result.ToActionResult();
     }
 
@@ -56,21 +55,21 @@ public class PagesController : ControllerBase
     [ProducesResponseType(typeof(PageDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> ResetPreprocessingAsync(Guid documentId, Guid pageId, CancellationToken ct = default)
     {
-        var result = await _pages.ResetPreprocessingAsync(documentId, pageId, GetCurrentUserId(), ct);
+        var result = await _pages.ResetPreprocessingAsync(documentId, pageId, User.GetUserId(), ct);
         return result.ToActionResult();
     }
 
     [HttpGet("{pageId:guid}/image")]
     public async Task<IActionResult> GetPageImageAsync(Guid documentId, Guid pageId, CancellationToken ct = default)
     {
-        var result = await _pages.GetPageImageAsync(documentId, pageId, GetCurrentUserId(), ct);
+        var result = await _pages.GetPageImageAsync(documentId, pageId, User.GetUserId(), ct);
         return BlobResult(result);
     }
 
     [HttpGet("{pageId:guid}/processed-image")]
     public async Task<IActionResult> GetProcessedImageAsync(Guid documentId, Guid pageId, CancellationToken ct = default)
     {
-        var result = await _pages.GetProcessedImageAsync(documentId, pageId, GetCurrentUserId(), ct);
+        var result = await _pages.GetProcessedImageAsync(documentId, pageId, User.GetUserId(), ct);
         return BlobResult(result);
     }
 
@@ -81,8 +80,7 @@ public class PagesController : ControllerBase
         [FromForm] List<IFormFile> files,
         CancellationToken ct = default)
     {
-        var userId = GetCurrentUserId();
-        if (userId == Guid.Empty) return Unauthorized();
+        var userId = User.GetUserId();
 
         if (files != null && files.Count > 0)
         {
@@ -99,7 +97,7 @@ public class PagesController : ControllerBase
     [ProducesResponseType(typeof(PreprocessHistoryStateDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetPreprocessHistoryAsync(Guid documentId, Guid pageId, CancellationToken ct = default)
     {
-        var result = await _pages.GetPreprocessHistoryAsync(documentId, pageId, GetCurrentUserId(), ct);
+        var result = await _pages.GetPreprocessHistoryAsync(documentId, pageId, User.GetUserId(), ct);
         return result.ToActionResult();
     }
 
@@ -107,7 +105,7 @@ public class PagesController : ControllerBase
     [ProducesResponseType(typeof(PreprocessHistoryStateDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> UndoPreprocessAsync(Guid documentId, Guid pageId, CancellationToken ct = default)
     {
-        var result = await _pages.UndoPreprocessAsync(documentId, pageId, GetCurrentUserId(), ct);
+        var result = await _pages.UndoPreprocessAsync(documentId, pageId, User.GetUserId(), ct);
         return result.ToActionResult();
     }
 
@@ -115,7 +113,7 @@ public class PagesController : ControllerBase
     [ProducesResponseType(typeof(PreprocessHistoryStateDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> RedoPreprocessAsync(Guid documentId, Guid pageId, CancellationToken ct = default)
     {
-        var result = await _pages.RedoPreprocessAsync(documentId, pageId, GetCurrentUserId(), ct);
+        var result = await _pages.RedoPreprocessAsync(documentId, pageId, User.GetUserId(), ct);
         return result.ToActionResult();
     }
 
@@ -127,7 +125,7 @@ public class PagesController : ControllerBase
         CancellationToken ct = default)
     {
         if (!ModelState.IsValid) return BadRequest(ModelState);
-        var result = await _pages.ApplyPreprocessToAllAsync(documentId, GetCurrentUserId(), request.Operations, ct);
+        var result = await _pages.ApplyPreprocessToAllAsync(documentId, User.GetUserId(), request.Operations, ct);
         return result.ToActionResult();
     }
 
@@ -144,12 +142,6 @@ public class PagesController : ControllerBase
         Response.Headers.ETag = etag;
         Response.Headers.CacheControl = "private, max-age=3600";
         return File(blob.Data, blob.ContentType);
-    }
-
-    private Guid GetCurrentUserId()
-    {
-        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        return Guid.TryParse(userIdClaim, out var userId) ? userId : Guid.Empty;
     }
 
     private static async Task<IReadOnlyList<UploadedFile>> ReadUploadsAsync(

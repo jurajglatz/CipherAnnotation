@@ -108,7 +108,10 @@ builder.Services
             ValidateAudience = true,
             ValidAudience = audience,
             ValidateLifetime = true,
-            ClockSkew = TimeSpan.Zero
+            // Small skew tolerates minor client clock drift — without it any
+            // sub-second drift past expiry causes a 401 even on a freshly
+            // issued token.
+            ClockSkew = TimeSpan.FromSeconds(30),
         };
     });
 
@@ -126,11 +129,13 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
     {
+        // No AllowCredentials: we authenticate with bearer tokens in the
+        // Authorization header, not cookies. If refresh tokens move to
+        // httpOnly cookies, add AllowCredentials() back.
         policy
             .WithOrigins(allowedOrigins)
             .AllowAnyMethod()
-            .AllowAnyHeader()
-            .AllowCredentials();
+            .AllowAnyHeader();
     });
 });
 
@@ -155,10 +160,13 @@ builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
-    // Fixed window: 5 requests per minute per client IP for auth endpoints.
+    static string IpKey(HttpContext ctx) =>
+        ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+    // 5 requests / minute / IP for register and password login (brute-force defense).
     options.AddPolicy("auth", httpContext =>
         RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            partitionKey: IpKey(httpContext),
             factory: _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 5,
@@ -166,7 +174,36 @@ builder.Services.AddRateLimiter(options =>
                 QueueLimit = 0,
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
             }));
+
+    // Refresh is legitimately frequent (every ~15 min per active tab, plus retries),
+    // so we allow more — but still bounded so a stolen token can't be hammered.
+    options.AddPolicy("auth-refresh", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: IpKey(httpContext),
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 30,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            }));
+
+    // Google validates the ID token itself, but we still want to bound abuse.
+    options.AddPolicy("auth-google", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: IpKey(httpContext),
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            }));
 });
+
+// Used by AuthController to throttle login attempts per-email, complementing
+// the per-IP policy above (a botnet can spread credential-stuffing across IPs).
+builder.Services.AddMemoryCache();
 
 // ============================================================================
 // Add Controllers and API Explorer
@@ -266,9 +303,15 @@ app.UseExceptionHandler(errorApp =>
         var exceptionHandlerPathFeature = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerPathFeature>();
         var exception = exceptionHandlerPathFeature?.Error;
 
+        // Correlation id users can quote when reporting the error — matches
+        // the id written into the server logs by the ASP.NET request tracing.
+        var traceId = System.Diagnostics.Activity.Current?.TraceId.ToString()
+                      ?? context.TraceIdentifier;
+
         var response = new
         {
             error = "An unexpected error occurred",
+            traceId,
             message = app.Environment.IsDevelopment() ? exception?.Message : null,
             details = app.Environment.IsDevelopment() ? exception?.StackTrace : null
         };
