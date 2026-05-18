@@ -10,3 +10,4 @@ export { default as annotationService } from './annotationService';
 export { default as captionService } from './captionService';
 export { default as exportService } from './exportService';
 export { default as userService } from './userService';
+export { default as symbolService } from './symbolService';

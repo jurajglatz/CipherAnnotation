@@ -10,7 +10,9 @@ using CipherAnnotation.Infrastructure.Services.Export;
 using CipherAnnotation.Infrastructure.Services.ImageProcessing;
 using CipherAnnotation.Infrastructure.Services.Pages;
 using CipherAnnotation.Infrastructure.Services.Storage;
+using CipherAnnotation.Infrastructure.Services.Symbols;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -54,6 +56,7 @@ builder.Services.AddScoped<IAutoAnnotationService, AutoAnnotationService>();
 builder.Services.AddScoped<IDocumentService, DocumentService>();
 builder.Services.AddScoped<IPageService, PageService>();
 builder.Services.AddScoped<IAnnotationService, AnnotationService>();
+builder.Services.AddScoped<ISymbolService, SymbolService>();
 builder.Services.AddScoped<IExportOrchestrationService, ExportOrchestrationService>();
 
 // Upload validation (file size, MIME, max pages)
@@ -129,6 +132,19 @@ builder.Services.AddCors(options =>
             .AllowAnyHeader()
             .AllowCredentials();
     });
+});
+
+// ============================================================================
+// Forwarded headers (HTTPS terminates at the reverse proxy; without this the
+// API sees the proxy's intra-docker IP for every request, which breaks the
+// per-IP rate limiter and any audit logging of client IPs).
+// ============================================================================
+
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
 });
 
 // ============================================================================
@@ -210,6 +226,10 @@ if (configuration.GetValue("ApplyMigrationsOnStartup", false))
 // ============================================================================
 // Configure the HTTP request pipeline
 // ============================================================================
+
+// Forwarded headers must run before anything that reads RemoteIpAddress or
+// Request.Scheme (rate limiter, HTTPS redirect, auth).
+app.UseForwardedHeaders();
 
 // Swagger UI
 if (app.Environment.IsDevelopment())

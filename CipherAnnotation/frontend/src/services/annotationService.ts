@@ -17,12 +17,15 @@ export interface CreateAnnotationData {
   content?: string;
   transcription?: string;
   transcriptionRefId?: string | null;
+  symbolId?: string | null;
   orientation: number;
   boundingBox: BoundingBox;
 }
 
 export type UpdateAnnotationData = Partial<CreateAnnotationData> & {
   parentId?: string | null;
+  /** True to clear the canonical-symbol link. */
+  clearSymbol?: boolean;
 };
 
 export interface AutoAnnotateAllResult {
@@ -47,9 +50,20 @@ class AnnotationService {
     annotationId: string,
     data: UpdateAnnotationData,
   ): Promise<Annotation> {
+    // The backend cannot distinguish "parentId omitted" from "parentId: null"
+    // on a nullable Guid, so signal a detach-to-root via clearParent instead.
+    const body: Record<string, unknown> = { ...data };
+    if ('parentId' in data && data.parentId === null) {
+      delete body.parentId;
+      body.clearParent = true;
+    }
+    if ('symbolId' in data && data.symbolId === null) {
+      delete body.symbolId;
+      body.clearSymbol = true;
+    }
     const res = await api.put<Annotation>(
       `/pages/${pageId}/annotations/${annotationId}`,
-      data,
+      body,
     );
     return res.data;
   }
@@ -88,11 +102,20 @@ class AnnotationService {
 
   async listForDocument(
     documentId: string,
-    opts: { type?: AnnotationType; currentPageId?: string } = {},
+    opts: {
+      type?: AnnotationType;
+      currentPageId?: string;
+      /** Restrict to children of this annotation (siblings of the caller). */
+      parentId?: string;
+      /** Restrict to root-level annotations (no parent). Ignored if parentId is set. */
+      rootOnly?: boolean;
+    } = {},
   ): Promise<DocumentAnnotationRef[]> {
     const params = new URLSearchParams();
     if (opts.type) params.set('type', opts.type);
     if (opts.currentPageId) params.set('currentPageId', opts.currentPageId);
+    if (opts.parentId) params.set('parentId', opts.parentId);
+    else if (opts.rootOnly) params.set('rootOnly', 'true');
     const qs = params.toString();
     const url = `/documents/${documentId}/annotations${qs ? `?${qs}` : ''}`;
     const res = await api.get<DocumentAnnotationRef[]>(url);

@@ -12,6 +12,7 @@ public record AnnotationDto
     public string? Content { get; init; }
     public string? Transcription { get; init; }
     public Guid? TranscriptionRefId { get; init; }
+    public Guid? SymbolId { get; init; }
     public required float Orientation { get; init; }
     public required BoundingBoxDto BoundingBox { get; init; }
     public required DateTime CreatedAt { get; init; }

@@ -132,16 +132,25 @@ Methods organized by entity:
 - `updateBoundingBoxes(pageId: string, updates: Array<{id: string; box: BoundingBox}>): Promise<BoundingBox[]>`
 
 ### symbolService.ts
-**Symbol management**
+**Canonical Symbol management** — the reusable drawing entity that
+`Annotation(type=Symbol)` rows reference via `symbolId`.
 
 Methods:
-- `getSymbols(code?: string): Promise<Symbol[]>`
-- `getSymbol(id: string): Promise<Symbol>`
-- `createSymbol(formData: FormData): Promise<Symbol>`
-- `updateSymbol(id: string, data: Partial<Symbol>): Promise<Symbol>`
-- `deleteSymbol(id: string): Promise<void>`
-- `getSymbolImage(id: string): Promise<Blob>`
-- `searchSymbols(query: string): Promise<Symbol[]>`
+- `list({ scope?, contentSearch?, take?, skip? }): Promise<Symbol[]>`
+  — `scope ∈ {'mine','shared','public','all'}`
+- `getById(id: string): Promise<Symbol>`
+- `getSuggestions(content, take?): Promise<SymbolSuggestion[]>` — used by the
+  Symbol annotation form to propose reusable canonical symbols based on the
+  current `content` input.
+- `create(pngBlob, content?, fileName?): Promise<Symbol>` — uploads a PNG
+  drawing produced on the whiteboard.
+- `update(id, content): Promise<Symbol>` — owner-only; drawing is immutable.
+- `delete(id): Promise<void>` — owner-only.
+- `getImageUrl(id): string`
+- `getOccurrences(id, take?, skip?): Promise<SymbolOccurrence[]>`
+- `recognize(id): Promise<RecognizeSymbolResponse>` — stub today; the same
+  endpoint will return content/confidence once a handwriting-recognition
+  model is wired in.
 
 ### exportService.ts
 **Dataset export operations**

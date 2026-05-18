@@ -28,6 +28,9 @@ public class Annotation
     /// <summary>FK to a Text-type annotation in the same document. Symbol type only.</summary>
     public Guid? TranscriptionRefId { get; set; }
 
+    /// <summary>FK to a canonical <see cref="Entities.Symbol"/> drawing. Symbol type only.</summary>
+    public Guid? SymbolId { get; set; }
+
     public required float Orientation { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
@@ -43,6 +46,8 @@ public class Annotation
     public Annotation? TranscriptionRef { get; set; }
 
     public ICollection<Annotation> ReferencedBy { get; set; } = [];
+
+    public Symbol? Symbol { get; set; }
 
     public BoundingBox? BoundingBox { get; set; }
 }

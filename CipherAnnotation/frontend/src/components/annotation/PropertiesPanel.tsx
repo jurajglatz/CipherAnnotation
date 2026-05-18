@@ -5,14 +5,18 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Trash2 } from 'lucide-react';
+import { Pencil, Trash2, X } from 'lucide-react';
 import {
   Annotation,
   AnnotationType,
   Caption,
   DocumentAnnotationRef,
+  SymbolSuggestion,
 } from '@/types';
 import annotationService from '@/services/annotationService';
+import symbolService from '@/services/symbolService';
+import SymbolWhiteboard from './SymbolWhiteboard';
+import SymbolImage from './SymbolImage';
 
 interface PropertiesPanelProps {
   annotation: Annotation | null;
@@ -34,15 +38,39 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
 }) => {
   const [draft, setDraft] = useState<Annotation | null>(annotation);
   const [textRefs, setTextRefs] = useState<DocumentAnnotationRef[]>([]);
+  const [suggestions, setSuggestions] = useState<SymbolSuggestion[]>([]);
+  const [showWhiteboard, setShowWhiteboard] = useState(false);
+  const [whiteboardBusy, setWhiteboardBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const lastSavedRef = useRef<Annotation | null>(annotation);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const suggestionDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setDraft(annotation);
     lastSavedRef.current = annotation;
     setError(null);
+    setShowWhiteboard(false);
   }, [annotation?.id]);
+
+  // Symbol suggestions — debounced lookup keyed off the editable Content field.
+  useEffect(() => {
+    if (!draft || draft.type !== 'Symbol') {
+      setSuggestions([]);
+      return;
+    }
+    if (suggestionDebounceRef.current) clearTimeout(suggestionDebounceRef.current);
+    const content = draft.content ?? '';
+    suggestionDebounceRef.current = setTimeout(() => {
+      symbolService
+        .getSuggestions(content, 6)
+        .then(setSuggestions)
+        .catch(() => setSuggestions([]));
+    }, 250);
+    return () => {
+      if (suggestionDebounceRef.current) clearTimeout(suggestionDebounceRef.current);
+    };
+  }, [draft?.type, draft?.content]);
 
   useEffect(() => {
     if (!annotation || annotation.type !== 'Symbol') {
@@ -50,10 +78,17 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
       return;
     }
     annotationService
-      .listForDocument(documentId, { type: 'Text', currentPageId: annotation.pageId })
+      .listForDocument(documentId, {
+        type: 'Text',
+        currentPageId: annotation.pageId,
+        // Only siblings under the same parent. A symbol at the root sees only
+        // root-level Text annotations.
+        parentId: annotation.parentId ?? undefined,
+        rootOnly: annotation.parentId == null,
+      })
       .then(setTextRefs)
       .catch(() => setTextRefs([]));
-  }, [annotation?.type, annotation?.pageId, documentId]);
+  }, [annotation?.type, annotation?.pageId, annotation?.parentId, documentId]);
 
   useEffect(() => {
     if (readOnly || !draft) return;
@@ -71,6 +106,8 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
         transcription: current.type === 'Cipher' ? current.transcription : undefined,
         transcriptionRefId:
           current.type === 'Symbol' ? current.transcriptionRefId ?? null : null,
+        symbolId:
+          current.type === 'Symbol' ? current.symbolId ?? null : null,
         orientation: current.orientation,
         boundingBox: current.boundingBox,
       };
@@ -210,11 +247,92 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
               <option value="">(none)</option>
               {textRefs.map((r) => (
                 <option key={r.id} value={r.id}>
-                  {r.captionLabel} • p.{r.pageNumber} •{' '}
+                  {r.captionLabel} {r.captionNumber} • p.{r.pageNumber} •{' '}
                   {r.content ?? '(no content)'}
                 </option>
               ))}
             </select>
+          </div>
+        )}
+
+        {/* Symbol-specific: canonical Symbol entity (drawing + suggestions) */}
+        {draft.type === 'Symbol' && (
+          <div className="space-y-2">
+            <label className="block text-xs font-semibold uppercase tracking-wider text-sepia-700">
+              Symbol drawing
+            </label>
+
+            {draft.symbolId ? (
+              <div className="flex items-center gap-3 p-2 border border-sepia-600/30 rounded-md bg-parchment-50">
+                <SymbolImage
+                  symbolId={draft.symbolId}
+                  alt="Linked symbol"
+                  className="w-16 h-16 object-contain bg-white rounded border border-sepia-600/20"
+                />
+                <div className="flex-1 text-xs font-mono text-ink-900/70 truncate">
+                  {draft.symbolId}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setField('symbolId', null)}
+                  className="p-1 text-cipher-red hover:bg-cipher-red/10 rounded"
+                  title="Unlink symbol"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ) : showWhiteboard ? (
+              <SymbolWhiteboard
+                busy={whiteboardBusy}
+                onCancel={() => setShowWhiteboard(false)}
+                onSave={async (blob) => {
+                  setWhiteboardBusy(true);
+                  try {
+                    const created = await symbolService.create(blob, draft.content ?? null);
+                    setField('symbolId', created.id);
+                    setShowWhiteboard(false);
+                  } catch (e) {
+                    setError(extractMessage(e));
+                  } finally {
+                    setWhiteboardBusy(false);
+                  }
+                }}
+              />
+            ) : (
+              <>
+                {suggestions.length > 0 && (
+                  <div className="grid grid-cols-3 gap-2">
+                    {suggestions.map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => setField('symbolId', s.id)}
+                        className="p-1 border border-sepia-600/30 rounded hover:border-ink-900 bg-white"
+                        title={s.content ?? ''}
+                      >
+                        <SymbolImage
+                          symbolId={s.id}
+                          alt={s.content ?? 'symbol'}
+                          className="w-full h-12 object-contain"
+                        />
+                        {s.content && (
+                          <div className="text-xs truncate text-ink-900/70 mt-1">
+                            {s.content}
+                          </div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setShowWhiteboard(true)}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 border border-sepia-600/30 rounded-md text-sm text-ink-900 hover:bg-parchment-50"
+                >
+                  <Pencil className="w-4 h-4" /> Draw new symbol
+                </button>
+              </>
+            )}
           </div>
         )}
 
@@ -317,6 +435,7 @@ function annotationsEqual(a: Annotation, b: Annotation): boolean {
     a.content === b.content &&
     a.transcription === b.transcription &&
     a.transcriptionRefId === b.transcriptionRefId &&
+    a.symbolId === b.symbolId &&
     a.orientation === b.orientation &&
     a.boundingBox.x === b.boundingBox.x &&
     a.boundingBox.y === b.boundingBox.y &&

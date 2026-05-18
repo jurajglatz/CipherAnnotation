@@ -18,6 +18,8 @@ import DocumentDetailPage from '@/pages/DocumentDetailPage';
 import PublicDocumentsPage from '@/pages/PublicDocumentsPage';
 import ProfilePage from '@/pages/ProfilePage';
 import AnnotationPage from '@/pages/AnnotationPage';
+import SymbolsPage from '@/pages/SymbolsPage';
+import SymbolDetailPage from '@/pages/SymbolDetailPage';
 
 function App() {
   return (
@@ -77,6 +79,24 @@ function App() {
             element={
               <ProtectedRoute>
                 <AnnotationPage />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/symbols"
+            element={
+              <ProtectedRoute>
+                <SymbolsPage />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/symbols/:symbolId"
+            element={
+              <ProtectedRoute>
+                <SymbolDetailPage />
               </ProtectedRoute>
             }
           />
