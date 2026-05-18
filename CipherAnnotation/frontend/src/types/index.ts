@@ -152,6 +152,7 @@ export interface Annotation {
   content?: string;
   transcription?: string;
   transcriptionRefId?: string | null;
+  symbolId?: string | null;
   orientation: number;
   boundingBox: BoundingBox;
   createdAt: string;
@@ -164,6 +165,43 @@ export interface DocumentAnnotationRef {
   pageNumber: number;
   content?: string;
   captionLabel: string;
+  captionNumber: number;
+}
+
+// ============================================================================
+// SYMBOLS
+// ============================================================================
+
+export type SymbolScope = 'mine' | 'shared' | 'public' | 'all';
+
+export interface Symbol {
+  id: string;
+  ownerUserId: string;
+  content?: string | null;
+  imageUrl: string;
+  referenceCount: number;
+  createdAt: string;
+}
+
+export interface SymbolSuggestion {
+  id: string;
+  content?: string | null;
+  imageUrl: string;
+}
+
+export interface SymbolOccurrence {
+  annotationId: string;
+  documentId: string;
+  documentTitle: string;
+  pageId: string;
+  pageNumber: number;
+  content?: string | null;
+  boundingBox: BoundingBox;
+}
+
+export interface RecognizeSymbolResponse {
+  content: string | null;
+  confidence: number;
 }
 
 // ============================================================================

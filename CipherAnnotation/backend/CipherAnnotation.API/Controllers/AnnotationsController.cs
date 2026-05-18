@@ -58,9 +58,12 @@ public class AnnotationsController : ControllerBase
         Guid documentId,
         [FromQuery] string? type,
         [FromQuery] Guid? currentPageId,
+        [FromQuery] Guid? parentId,
+        [FromQuery] bool rootOnly = false,
         CancellationToken ct = default)
     {
-        var result = await _annotations.ListForDocumentAsync(documentId, GetCurrentUserId(), type, currentPageId, ct);
+        var result = await _annotations.ListForDocumentAsync(
+            documentId, GetCurrentUserId(), type, currentPageId, parentId, rootOnly, ct);
         return result.ToActionResult();
     }
 

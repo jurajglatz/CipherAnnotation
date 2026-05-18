@@ -19,6 +19,8 @@ public record CreateAnnotationRequest
 
     public Guid? TranscriptionRefId { get; init; }
 
+    public Guid? SymbolId { get; init; }
+
     [Range(-360f, 360f)]
     public float Orientation { get; init; }
 

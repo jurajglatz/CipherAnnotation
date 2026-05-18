@@ -46,11 +46,18 @@ export const Navbar: React.FC = () => {
     ? [
         { to: '/documents', label: 'My Documents' },
         { to: '/documents/public', label: 'Public Library' },
+        { to: '/symbols', label: 'Symbols' },
       ]
     : [];
 
-  const isActive = (to: string) =>
-    location.pathname === to || location.pathname.startsWith(to + '/');
+  // The active link is the one with the longest `to` that prefixes the
+  // current path. This prevents shorter siblings (e.g. `/documents`) from
+  // also lighting up when on a more-specific route (`/documents/public`).
+  const activeTo = navLinks
+    .filter((l) => location.pathname === l.to || location.pathname.startsWith(l.to + '/'))
+    .reduce<string | null>((best, l) => (best == null || l.to.length > best.length ? l.to : best), null);
+
+  const isActive = (to: string) => to === activeTo;
 
   return (
     <nav

@@ -7,4 +7,5 @@ public record DocumentAnnotationItemDto
     public required int PageNumber { get; init; }
     public string? Content { get; init; }
     public required string CaptionLabel { get; init; }
+    public required int CaptionNumber { get; init; }
 }

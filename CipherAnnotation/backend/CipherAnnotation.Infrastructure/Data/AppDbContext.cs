@@ -68,6 +68,11 @@ public class AppDbContext : DbContext
     public DbSet<RefreshToken> RefreshTokens { get; set; } = null!;
 
     /// <summary>
+    /// Gets or sets the Symbols database set.
+    /// </summary>
+    public DbSet<Symbol> Symbols { get; set; } = null!;
+
+    /// <summary>
     /// Configures the model using the Fluent API.
     /// </summary>
     /// <param name="modelBuilder">The model builder.</param>
@@ -298,10 +303,16 @@ public class AppDbContext : DbContext
                 .IsRequired(false)
                 .OnDelete(DeleteBehavior.SetNull);
 
+            entity.HasOne(e => e.Symbol)
+                .WithMany(s => s.Annotations)
+                .HasForeignKey(e => e.SymbolId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.SetNull);
+
             entity.ToTable(t => t.HasCheckConstraint(
                 "CK_Annotation_TypeFields",
-                "(\"Type\" = 'Text'   AND \"Transcription\" IS NULL AND \"TranscriptionRefId\" IS NULL) OR " +
-                "(\"Type\" = 'Cipher' AND \"TranscriptionRefId\" IS NULL) OR " +
+                "(\"Type\" = 'Text'   AND \"Transcription\" IS NULL AND \"TranscriptionRefId\" IS NULL AND \"SymbolId\" IS NULL) OR " +
+                "(\"Type\" = 'Cipher' AND \"TranscriptionRefId\" IS NULL AND \"SymbolId\" IS NULL) OR " +
                 "(\"Type\" = 'Symbol' AND \"Transcription\" IS NULL)"));
 
             entity.HasIndex(e => new { e.PageId, e.CaptionId, e.CreatedAt });
@@ -408,6 +419,31 @@ public class AppDbContext : DbContext
 
             entity.HasIndex(e => e.TokenHash).IsUnique();
             entity.HasIndex(e => e.UserId);
+        });
+
+        // Configure Symbol entity
+        modelBuilder.Entity<Symbol>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+
+            entity.Property(e => e.Content).HasMaxLength(2000);
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+            entity.HasOne(e => e.Owner)
+                .WithMany()
+                .HasForeignKey(e => e.OwnerUserId)
+                .IsRequired()
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.ImageBlob)
+                .WithMany()
+                .HasForeignKey(e => e.ImageBlobId)
+                .IsRequired()
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(e => e.OwnerUserId);
+            entity.HasIndex(e => e.Content);
         });
     }
 }

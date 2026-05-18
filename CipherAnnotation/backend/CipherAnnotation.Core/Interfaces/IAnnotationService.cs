@@ -25,6 +25,7 @@ public interface IAnnotationService
 
     Task<ServiceResult<IEnumerable<DocumentAnnotationItemDto>>> ListForDocumentAsync(
         Guid documentId, Guid currentUserId, string? type, Guid? currentPageId,
+        Guid? parentId, bool rootOnly,
         CancellationToken cancellationToken = default);
 
     Task<ServiceResult<IEnumerable<AnnotationDto>>> AutoAnnotateAsync(

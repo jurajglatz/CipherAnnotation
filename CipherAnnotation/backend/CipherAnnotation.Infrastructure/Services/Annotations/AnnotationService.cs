@@ -63,7 +63,7 @@ public class AnnotationService : IAnnotationService
         if (!Enum.TryParse<AnnotationType>(req.Type, ignoreCase: false, out var type))
             return ServiceResult<AnnotationDto>.BadRequest($"Invalid type \"{req.Type}\".");
 
-        if (!ValidateTypeFields(type, req.Transcription, req.TranscriptionRefId, out var typeError))
+        if (!ValidateTypeFields(type, req.Transcription, req.TranscriptionRefId, req.SymbolId, out var typeError))
             return ServiceResult<AnnotationDto>.BadRequest(typeError);
 
         var page = await _db.Pages.FirstOrDefaultAsync(p => p.Id == pageId, ct);
@@ -88,6 +88,13 @@ public class AnnotationService : IAnnotationService
             if (!ok)
                 return ServiceResult<AnnotationDto>.BadRequest(
                     "transcriptionRefId must point to a Text annotation in the same document.");
+        }
+
+        if (type == AnnotationType.Symbol && req.SymbolId is { } symId)
+        {
+            var ok = await _db.Symbols.AnyAsync(s => s.Id == symId, ct);
+            if (!ok)
+                return ServiceResult<AnnotationDto>.BadRequest("symbolId does not refer to an existing Symbol.");
         }
 
         var depth = await ComputeDepthAsync(req.ParentId, ct);
@@ -124,6 +131,7 @@ public class AnnotationService : IAnnotationService
             Content = req.Content,
             Transcription = type == AnnotationType.Cipher ? req.Transcription : null,
             TranscriptionRefId = type == AnnotationType.Symbol ? req.TranscriptionRefId : null,
+            SymbolId = type == AnnotationType.Symbol ? req.SymbolId : null,
             Orientation = req.Orientation,
             BoundingBox = new BoundingBox
             {
@@ -216,6 +224,7 @@ public class AnnotationService : IAnnotationService
         {
             ann.Transcription = newType == AnnotationType.Cipher ? req.Transcription ?? ann.Transcription : null;
             ann.TranscriptionRefId = newType == AnnotationType.Symbol ? req.TranscriptionRefId ?? ann.TranscriptionRefId : null;
+            ann.SymbolId = newType == AnnotationType.Symbol ? req.SymbolId ?? ann.SymbolId : null;
         }
         else
         {
@@ -239,9 +248,27 @@ public class AnnotationService : IAnnotationService
                     ann.TranscriptionRefId = refId;
                 }
             }
+            if (ann.Type == AnnotationType.Symbol && req.ClearSymbol)
+            {
+                ann.SymbolId = null;
+            }
+            else if (ann.Type == AnnotationType.Symbol && req.SymbolId is { } symId)
+            {
+                if (symId == Guid.Empty)
+                {
+                    ann.SymbolId = null;
+                }
+                else
+                {
+                    var ok = await _db.Symbols.AnyAsync(s => s.Id == symId, ct);
+                    if (!ok)
+                        return ServiceResult<AnnotationDto>.BadRequest("symbolId does not refer to an existing Symbol.");
+                    ann.SymbolId = symId;
+                }
+            }
         }
 
-        if (!ValidateTypeFields(ann.Type, ann.Transcription, ann.TranscriptionRefId, out var typeError))
+        if (!ValidateTypeFields(ann.Type, ann.Transcription, ann.TranscriptionRefId, ann.SymbolId, out var typeError))
             return ServiceResult<AnnotationDto>.BadRequest(typeError);
 
         if (req.Orientation.HasValue) ann.Orientation = req.Orientation.Value;
@@ -306,6 +333,7 @@ public class AnnotationService : IAnnotationService
 
     public async Task<ServiceResult<IEnumerable<DocumentAnnotationItemDto>>> ListForDocumentAsync(
         Guid documentId, Guid currentUserId, string? type, Guid? currentPageId,
+        Guid? parentId, bool rootOnly,
         CancellationToken ct = default)
     {
         if (!await UserCanAccessDocumentAsync(documentId, currentUserId, ct))
@@ -320,9 +348,26 @@ public class AnnotationService : IAnnotationService
             query = query.Where(a => a.Type == t);
         }
 
-        var rows = await query
+        if (rootOnly)
+            query = query.Where(a => a.ParentId == null);
+        else if (parentId is { } pid)
+            query = query.Where(a => a.ParentId == pid);
+
+        // Caption numbers are computed per (PageId, CaptionId) over ALL annotations
+        // on that page — not just the filtered subset — so the number matches what
+        // the user sees elsewhere in the UI.
+        var matched = await query
             .Include(a => a.Caption)
             .Include(a => a.Page)
+            .ToListAsync(ct);
+
+        var matchedPageIds = matched.Select(a => a.PageId).Distinct().ToList();
+        var pageAnnotations = await _db.Annotations
+            .Where(a => matchedPageIds.Contains(a.PageId))
+            .ToListAsync(ct);
+        var numbers = ComputeCaptionNumbers(pageAnnotations);
+
+        var rows = matched
             .Select(a => new DocumentAnnotationItemDto
             {
                 Id = a.Id,
@@ -330,8 +375,9 @@ public class AnnotationService : IAnnotationService
                 PageNumber = a.Page!.PageNumber,
                 Content = a.Content,
                 CaptionLabel = a.Caption!.Name,
+                CaptionNumber = numbers.TryGetValue(a.Id, out var n) ? n : 0,
             })
-            .ToListAsync(ct);
+            .ToList();
 
         if (currentPageId is { } cpid)
             rows = rows.OrderByDescending(r => r.PageId == cpid).ThenBy(r => r.PageNumber).ToList();
@@ -669,16 +715,16 @@ public class AnnotationService : IAnnotationService
         return false;
     }
 
-    internal static bool ValidateTypeFields(AnnotationType type, string? transcription, Guid? transcriptionRefId, out string error)
+    internal static bool ValidateTypeFields(AnnotationType type, string? transcription, Guid? transcriptionRefId, Guid? symbolId, out string error)
     {
         error = "";
         return type switch
         {
-            AnnotationType.Text when transcription is null && transcriptionRefId is null => true,
-            AnnotationType.Cipher when transcriptionRefId is null => true,
+            AnnotationType.Text when transcription is null && transcriptionRefId is null && symbolId is null => true,
+            AnnotationType.Cipher when transcriptionRefId is null && symbolId is null => true,
             AnnotationType.Symbol when transcription is null => true,
-            AnnotationType.Text => SetError(out error, "Text type cannot carry transcription/transcriptionRefId."),
-            AnnotationType.Cipher => SetError(out error, "Cipher type cannot carry transcriptionRefId."),
+            AnnotationType.Text => SetError(out error, "Text type cannot carry transcription/transcriptionRefId/symbolId."),
+            AnnotationType.Cipher => SetError(out error, "Cipher type cannot carry transcriptionRefId/symbolId."),
             AnnotationType.Symbol => SetError(out error, "Symbol type cannot carry transcription text."),
             _ => SetError(out error, "Unknown type."),
         };
