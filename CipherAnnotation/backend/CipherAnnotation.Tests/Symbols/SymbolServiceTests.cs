@@ -14,7 +14,7 @@ public class SymbolServiceTests
     private static (SymbolService svc, AppDbContext ctx) NewService()
     {
         var ctx = NewCtx();
-        var svc = new SymbolService(ctx, new FakeStorage());
+        var svc = new SymbolService(ctx, new FakeStorage(), new NullVlmSuggestionService(), new NullAppSettingsService());
         return (svc, ctx);
     }
 
@@ -219,5 +219,21 @@ public class SymbolServiceTests
         public Task<FileBlob?> GetAsync(Guid id, CancellationToken ct = default) => Task.FromResult<FileBlob?>(null);
         public Task<byte[]?> GetBytesAsync(Guid id, CancellationToken ct = default) => Task.FromResult<byte[]?>(null);
         public Task DeleteAsync(Guid id, CancellationToken ct = default) => Task.CompletedTask;
+    }
+
+    private sealed class NullVlmSuggestionService : IVlmSuggestionService
+    {
+        public Task<string?> SuggestSymbolContentAsync(byte[] imageBytes, string mimeType, CancellationToken ct = default)
+            => Task.FromResult<string?>(null);
+    }
+
+    private sealed class NullAppSettingsService : IAppSettingsService
+    {
+        public Task<bool> GetBoolAsync(string key, bool defaultValue = false, CancellationToken ct = default)
+            => Task.FromResult(defaultValue);
+        public Task<IReadOnlyDictionary<string, string>> GetAllAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyDictionary<string, string>>(new Dictionary<string, string>());
+        public Task SetAsync(string key, string value, Guid? updatedByUserId = null, CancellationToken ct = default)
+            => Task.CompletedTask;
     }
 }

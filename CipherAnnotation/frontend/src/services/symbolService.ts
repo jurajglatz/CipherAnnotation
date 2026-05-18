@@ -80,6 +80,25 @@ class SymbolService {
     const response = await api.post<RecognizeSymbolResponse>(`/symbols/${id}/recognize`);
     return response.data;
   }
+
+  async autoFillContent(scope: 'Page' | 'Document', id: string): Promise<AutoFillContentResult> {
+    const response = await api.post<AutoFillContentResult>('/symbols/auto-fill-content', { scope, id });
+    return response.data;
+  }
+}
+
+export interface AutoFillContentItem {
+  symbolId: string;
+  suggestion: string | null;
+  status: string;
+}
+
+export interface AutoFillContentResult {
+  candidates: number;
+  filled: number;
+  skippedNotOwner: number;
+  skippedNoSuggestion: number;
+  items: AutoFillContentItem[];
 }
 
 export default new SymbolService();

@@ -73,6 +73,11 @@ public class AppDbContext : DbContext
     public DbSet<Symbol> Symbols { get; set; } = null!;
 
     /// <summary>
+    /// Gets or sets the AppSettings database set (global feature flags).
+    /// </summary>
+    public DbSet<AppSetting> AppSettings { get; set; } = null!;
+
+    /// <summary>
     /// Configures the model using the Fluent API.
     /// </summary>
     /// <param name="modelBuilder">The model builder.</param>
@@ -444,6 +449,15 @@ public class AppDbContext : DbContext
 
             entity.HasIndex(e => e.OwnerUserId);
             entity.HasIndex(e => e.Content);
+        });
+
+        // Configure AppSetting entity
+        modelBuilder.Entity<AppSetting>(entity =>
+        {
+            entity.HasKey(e => e.Key);
+            entity.Property(e => e.Key).HasMaxLength(128);
+            entity.Property(e => e.Value).IsRequired().HasMaxLength(2000);
+            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP");
         });
     }
 }

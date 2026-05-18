@@ -2,9 +2,11 @@ using System.Security.Claims;
 using CipherAnnotation.Core.DTOs.Auth;
 using CipherAnnotation.Core.Entities;
 using CipherAnnotation.Core.Interfaces;
+using CipherAnnotation.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 
@@ -19,6 +21,7 @@ public class AuthController : ControllerBase
     private readonly IConfiguration _configuration;
     private readonly IWebHostEnvironment _env;
     private readonly ILogger<AuthController> _logger;
+    private readonly AppDbContext _db;
 
     // The refresh token rides in an httpOnly Secure SameSite=Strict cookie so
     // a successful XSS cannot read or exfiltrate it.
@@ -35,13 +38,15 @@ public class AuthController : ControllerBase
         IMemoryCache cache,
         IConfiguration configuration,
         IWebHostEnvironment env,
-        ILogger<AuthController> logger)
+        ILogger<AuthController> logger,
+        AppDbContext db)
     {
         _authService = authService;
         _cache = cache;
         _configuration = configuration;
         _env = env;
         _logger = logger;
+        _db = db;
     }
 
     [HttpPost("register")]
@@ -166,21 +171,18 @@ public class AuthController : ControllerBase
     [Authorize]
     [ProducesResponseType(typeof(UserDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public IActionResult GetCurrentUser()
+    public async Task<IActionResult> GetCurrentUser(CancellationToken ct)
     {
-        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        var email = User.FindFirstValue(ClaimTypes.Email);
-        var name = User.FindFirstValue(ClaimTypes.Name);
-
-        if (string.IsNullOrEmpty(userId) || string.IsNullOrEmpty(email) || string.IsNullOrEmpty(name))
+        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!Guid.TryParse(userIdClaim, out var userId))
             return Unauthorized(new { message = "User claims incomplete." });
 
-        return Ok(new UserDto
-        {
-            Id = Guid.Parse(userId),
-            Email = email,
-            Name = name,
-        });
+        // Read from DB (not claims) so Role/CreatedAt reflect current state —
+        // critical for admin promotion to take effect without re-login.
+        var user = await _db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId, ct);
+        if (user is null) return Unauthorized(new { message = "User not found." });
+
+        return Ok(ToDto(user));
     }
 
     private bool TryRecordLoginAttempt(string email)
@@ -234,5 +236,7 @@ public class AuthController : ControllerBase
         Email = user.Email,
         Name = user.Name,
         AvatarUri = user.AvatarUri,
+        Role = user.Role,
+        CreatedAt = user.CreatedAt,
     };
 }
