@@ -107,6 +107,7 @@ const groups: Record<TourGroup, TourStep[]> = {
 };
 
 let activeDriver: Driver | null = null;
+let suppressDismissCleanup = false;
 
 const readState = (): TourState | null => {
   try {
@@ -124,8 +125,10 @@ const writeState = (state: TourState | null) => {
 
 const destroyActive = () => {
   if (activeDriver) {
+    suppressDismissCleanup = true;
     activeDriver.destroy();
     activeDriver = null;
+    suppressDismissCleanup = false;
   }
 };
 
@@ -161,6 +164,9 @@ const driveGroup = (group: TourGroup, startStep = 0) => {
     },
     onDestroyed: () => {
       activeDriver = null;
+      if (!suppressDismissCleanup) {
+        writeState(null);
+      }
     },
     onHighlightStarted: (_el, _step, opts) => {
       writeState({ active: true, group, step: opts.state.activeIndex ?? 0 });

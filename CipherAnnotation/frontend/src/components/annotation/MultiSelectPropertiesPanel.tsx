@@ -5,12 +5,13 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Annotation, Caption } from '@/types';
+import { Annotation, AnnotationType, Caption } from '@/types';
 
 interface MultiSelectPropertiesPanelProps {
   annotations: Annotation[];
   captions: Caption[];
   onBulkUpdateCaption: (ids: string[], captionId: string) => Promise<void>;
+  onBulkUpdateType: (ids: string[], type: AnnotationType) => Promise<void>;
   readOnly?: boolean;
 }
 
@@ -18,6 +19,7 @@ export const MultiSelectPropertiesPanel: React.FC<MultiSelectPropertiesPanelProp
   annotations,
   captions,
   onBulkUpdateCaption,
+  onBulkUpdateType,
   readOnly = false,
 }) => {
   const sortedCaptions = useMemo(
@@ -31,9 +33,17 @@ export const MultiSelectPropertiesPanel: React.FC<MultiSelectPropertiesPanelProp
     return annotations.every((a) => a.captionId === first) ? first : '';
   }, [annotations]);
 
+  const commonType = useMemo<AnnotationType | ''>(() => {
+    if (annotations.length === 0) return '';
+    const first = annotations[0].type;
+    return annotations.every((a) => a.type === first) ? first : '';
+  }, [annotations]);
+
   const [captionId, setCaptionId] = useState<string>(commonCaptionId);
+  const [type, setType] = useState<AnnotationType | ''>(commonType);
   const [error, setError] = useState<string | null>(null);
   const lastAppliedRef = useRef<string>(commonCaptionId);
+  const lastAppliedTypeRef = useRef<AnnotationType | ''>(commonType);
 
   useEffect(() => {
     setCaptionId(commonCaptionId);
@@ -41,11 +51,30 @@ export const MultiSelectPropertiesPanel: React.FC<MultiSelectPropertiesPanelProp
     setError(null);
   }, [commonCaptionId, annotations.length]);
 
+  useEffect(() => {
+    setType(commonType);
+    lastAppliedTypeRef.current = commonType;
+  }, [commonType, annotations.length]);
+
   const typeCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const a of annotations) counts[a.type] = (counts[a.type] ?? 0) + 1;
     return counts;
   }, [annotations]);
+
+  async function handleTypeChange(newType: AnnotationType) {
+    setType(newType);
+    if (!newType || newType === lastAppliedTypeRef.current) return;
+    const previous = lastAppliedTypeRef.current;
+    lastAppliedTypeRef.current = newType;
+    try {
+      await onBulkUpdateType(annotations.map((a) => a.id), newType);
+      setError(null);
+    } catch (e: unknown) {
+      setError(extractMessage(e));
+      lastAppliedTypeRef.current = previous;
+    }
+  }
 
   async function handleCaptionChange(newCaptionId: string) {
     setCaptionId(newCaptionId);
@@ -101,6 +130,29 @@ export const MultiSelectPropertiesPanel: React.FC<MultiSelectPropertiesPanelProp
           </select>
           <p className="text-xs text-sepia-700/80 mt-2 font-serif italic">
             Applying a caption updates all {annotations.length} selected annotations.
+          </p>
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold uppercase tracking-wider text-sepia-700 mb-1">
+            Type
+          </label>
+          <select
+            value={type}
+            onChange={(e) => handleTypeChange(e.target.value as AnnotationType)}
+            className="w-full px-3 py-2 bg-parchment-50 border border-sepia-600/30 rounded-md text-ink-900 focus:outline-none focus:ring-2 focus:ring-ink-900 focus:border-ink-900"
+          >
+            {!commonType && (
+              <option value="" disabled>
+                (mixed — pick one to apply to all)
+              </option>
+            )}
+            <option value="Text">Text</option>
+            <option value="Cipher">Cipher</option>
+            <option value="Symbol">Symbol</option>
+          </select>
+          <p className="text-xs text-sepia-700/80 mt-2 font-serif italic">
+            Applying a type updates all {annotations.length} selected annotations.
           </p>
         </div>
 

@@ -1,8 +1,9 @@
 using System.Security.Claims;
 using CipherAnnotation.Core.DTOs.Auth;
-using CipherAnnotation.Core.Interfaces;
+using CipherAnnotation.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace CipherAnnotation.API.Controllers;
 
@@ -18,12 +19,12 @@ public class UsersController : ControllerBase
     private const int DefaultLimit = 10;
     private const int MaxLimit = 20;
 
-    private readonly IUserRepository _userRepository;
+    private readonly AppDbContext _dbContext;
     private readonly ILogger<UsersController> _logger;
 
-    public UsersController(IUserRepository userRepository, ILogger<UsersController> logger)
+    public UsersController(AppDbContext dbContext, ILogger<UsersController> logger)
     {
-        _userRepository = userRepository ?? throw new ArgumentNullException(nameof(userRepository));
+        _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -57,11 +58,19 @@ public class UsersController : ControllerBase
 
         try
         {
-            var users = await _userRepository.SearchAsync(
-                q.Trim(),
-                clampedLimit,
-                currentUserId,
-                cancellationToken);
+            var normalized = q.Trim().ToLower();
+            var query = _dbContext.Users.AsNoTracking()
+                .Where(u =>
+                    u.Email.ToLower().Contains(normalized) ||
+                    u.Name.ToLower().Contains(normalized));
+
+            if (currentUserId.HasValue)
+                query = query.Where(u => u.Id != currentUserId.Value);
+
+            var users = await query
+                .OrderBy(u => u.Name)
+                .Take(clampedLimit)
+                .ToListAsync(cancellationToken);
 
             var result = users.Select(u => new UserDto
             {
