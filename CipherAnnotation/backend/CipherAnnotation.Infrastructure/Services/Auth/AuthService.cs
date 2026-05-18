@@ -167,27 +167,42 @@ public class AuthService : IAuthService
             CreatedAt = DateTime.UtcNow,
         };
 
-        await using var tx = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
-
-        // Atomically claim the rotation: only one concurrent caller wins.
         var revokedAt = DateTime.UtcNow;
-        var claimed = await _dbContext.RefreshTokens
-            .Where(t => t.Id == stored.Id && t.RevokedAt == null)
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(t => t.RevokedAt, revokedAt)
-                .SetProperty(t => t.ReplacedByTokenId, (Guid?)replacement.Id),
-                cancellationToken);
 
-        if (claimed == 0)
+        // Relational providers (Postgres) get an atomic claim via a conditional
+        // UPDATE inside a transaction — only one concurrent caller wins.
+        // The InMemory provider used in tests supports neither transactions
+        // nor ExecuteUpdate, so it falls back to tracker-based mutation (the
+        // race-protection guarantees only matter against a real DB anyway).
+        if (_dbContext.Database.IsRelational())
         {
-            await tx.RollbackAsync(cancellationToken);
-            _logger.LogInformation("Refresh rotation lost race for user {UserId}.", stored.UserId);
-            return null;
-        }
+            await using var tx = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
 
-        _dbContext.RefreshTokens.Add(replacement);
-        await _dbContext.SaveChangesAsync(cancellationToken);
-        await tx.CommitAsync(cancellationToken);
+            var claimed = await _dbContext.RefreshTokens
+                .Where(t => t.Id == stored.Id && t.RevokedAt == null)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(t => t.RevokedAt, revokedAt)
+                    .SetProperty(t => t.ReplacedByTokenId, (Guid?)replacement.Id),
+                    cancellationToken);
+
+            if (claimed == 0)
+            {
+                await tx.RollbackAsync(cancellationToken);
+                _logger.LogInformation("Refresh rotation lost race for user {UserId}.", stored.UserId);
+                return null;
+            }
+
+            _dbContext.RefreshTokens.Add(replacement);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            await tx.CommitAsync(cancellationToken);
+        }
+        else
+        {
+            stored.RevokedAt = revokedAt;
+            stored.ReplacedByTokenId = replacement.Id;
+            _dbContext.RefreshTokens.Add(replacement);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        }
 
         return new RefreshResult(accessToken, rawRefresh, expiresAt, user);
     }
