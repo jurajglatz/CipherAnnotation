@@ -24,6 +24,10 @@ public interface ISymbolService
         Guid id, Guid currentUserId, string? content,
         CancellationToken cancellationToken = default);
 
+    Task<ServiceResult<SymbolDto>> UpdateImageAsync(
+        Guid id, Guid currentUserId, byte[] pngBytes, string fileName,
+        CancellationToken cancellationToken = default);
+
     Task<ServiceResult> DeleteAsync(
         Guid id, Guid currentUserId, CancellationToken cancellationToken = default);
 

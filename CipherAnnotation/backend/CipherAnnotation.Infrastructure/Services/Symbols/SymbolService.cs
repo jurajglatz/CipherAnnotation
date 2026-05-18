@@ -146,6 +146,24 @@ public class SymbolService : ISymbolService
         return ServiceResult<SymbolDto>.Success(ToDto(symbol, refCount));
     }
 
+    public async Task<ServiceResult<SymbolDto>> UpdateImageAsync(
+        Guid id, Guid currentUserId, byte[] pngBytes, string fileName, CancellationToken ct = default)
+    {
+        if (pngBytes is null || pngBytes.Length == 0)
+            return ServiceResult<SymbolDto>.BadRequest("pngFile is required.");
+
+        var symbol = await _db.Symbols.FirstOrDefaultAsync(s => s.Id == id, ct);
+        if (symbol is null) return ServiceResult<SymbolDto>.NotFound();
+        if (symbol.OwnerUserId != currentUserId) return ServiceResult<SymbolDto>.Forbidden();
+
+        var blobId = await _fileStorage.SaveAsync(pngBytes, fileName, "image/png", ct);
+        symbol.ImageBlobId = blobId;
+        await _db.SaveChangesAsync(ct);
+
+        var refCount = await CountVisibleOccurrencesAsync(id, currentUserId, ct);
+        return ServiceResult<SymbolDto>.Success(ToDto(symbol, refCount));
+    }
+
     public async Task<ServiceResult> DeleteAsync(Guid id, Guid currentUserId, CancellationToken ct = default)
     {
         var symbol = await _db.Symbols.FirstOrDefaultAsync(s => s.Id == id, ct);

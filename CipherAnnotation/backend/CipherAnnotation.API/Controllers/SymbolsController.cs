@@ -88,6 +88,28 @@ public class SymbolsController : ControllerBase
         return result.ToActionResult();
     }
 
+    [HttpPut("{id:guid}/image")]
+    [ProducesResponseType(typeof(SymbolDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> UpdateImageAsync(
+        Guid id,
+        [FromForm] IFormFile pngFile,
+        CancellationToken ct = default)
+    {
+        if (pngFile is null || pngFile.Length == 0)
+            return BadRequest(new { message = "pngFile is required." });
+        if (pngFile.Length > MaxPngBytes)
+            return BadRequest(new { message = $"PNG exceeds {MaxPngBytes} bytes." });
+        if (!string.Equals(pngFile.ContentType, "image/png", StringComparison.OrdinalIgnoreCase))
+            return BadRequest(new { message = "pngFile must be image/png." });
+
+        using var ms = new MemoryStream();
+        await pngFile.CopyToAsync(ms, ct);
+
+        var result = await _symbols.UpdateImageAsync(
+            id, User.GetUserId(), ms.ToArray(), pngFile.FileName ?? "symbol.png", ct);
+        return result.ToActionResult();
+    }
+
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> DeleteAsync(Guid id, CancellationToken ct = default)
     {
