@@ -45,7 +45,7 @@ public class AuthService : IAuthService
         {
             Id = Guid.NewGuid(),
             Email = email.ToLower(),
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword(password),
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(password, GetBcryptWorkFactor()),
             Name = name,
             Role = UserRole.User,
             CreatedAt = DateTime.UtcNow,
@@ -252,6 +252,11 @@ public class AuthService : IAuthService
 
     private int GetRefreshLifetimeDays() =>
         int.TryParse(_configuration["Jwt:RefreshTokenLifetimeDays"], out var d) ? d : 7;
+
+    // BCrypt cost factor — each increment doubles work. 12 targets ~250ms on
+    // modern server hardware; tune via Security:BcryptWorkFactor in config.
+    private int GetBcryptWorkFactor() =>
+        int.TryParse(_configuration["Security:BcryptWorkFactor"], out var w) && w >= 4 && w <= 31 ? w : 12;
 
     private static (string raw, string hash) GenerateRefreshToken()
     {

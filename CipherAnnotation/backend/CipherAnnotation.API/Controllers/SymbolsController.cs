@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using CipherAnnotation.API.Extensions;
 using CipherAnnotation.Core.Common;
 using CipherAnnotation.Core.DTOs.Symbol;
@@ -29,8 +28,7 @@ public class SymbolsController : ControllerBase
         [FromForm] string? content,
         CancellationToken ct = default)
     {
-        var userId = GetCurrentUserId();
-        if (userId == Guid.Empty) return Unauthorized();
+        var userId = User.GetUserId();
 
         if (pngFile is null || pngFile.Length == 0)
             return BadRequest(new { message = "pngFile is required." });
@@ -57,7 +55,7 @@ public class SymbolsController : ControllerBase
         CancellationToken ct = default)
     {
         var result = await _symbols.ListAsync(
-            GetCurrentUserId(), scope ?? "all", contentSearch, take, skip, ct);
+            User.GetUserId(), scope ?? "all", contentSearch, take, skip, ct);
         return result.ToActionResult();
     }
 
@@ -68,7 +66,7 @@ public class SymbolsController : ControllerBase
         [FromQuery] int take = 6,
         CancellationToken ct = default)
     {
-        var result = await _symbols.GetSuggestionsAsync(GetCurrentUserId(), content, take, ct);
+        var result = await _symbols.GetSuggestionsAsync(User.GetUserId(), content, take, ct);
         return result.ToActionResult();
     }
 
@@ -76,7 +74,7 @@ public class SymbolsController : ControllerBase
     [ProducesResponseType(typeof(SymbolDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetByIdAsync(Guid id, CancellationToken ct = default)
     {
-        var result = await _symbols.GetByIdAsync(id, GetCurrentUserId(), ct);
+        var result = await _symbols.GetByIdAsync(id, User.GetUserId(), ct);
         return result.ToActionResult();
     }
 
@@ -86,21 +84,21 @@ public class SymbolsController : ControllerBase
         Guid id, [FromBody] UpdateSymbolRequest request, CancellationToken ct = default)
     {
         if (!ModelState.IsValid) return BadRequest(ModelState);
-        var result = await _symbols.UpdateAsync(id, GetCurrentUserId(), request.Content, ct);
+        var result = await _symbols.UpdateAsync(id, User.GetUserId(), request.Content, ct);
         return result.ToActionResult();
     }
 
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> DeleteAsync(Guid id, CancellationToken ct = default)
     {
-        var result = await _symbols.DeleteAsync(id, GetCurrentUserId(), ct);
+        var result = await _symbols.DeleteAsync(id, User.GetUserId(), ct);
         return result.ToActionResult();
     }
 
     [HttpGet("{id:guid}/image")]
     public async Task<IActionResult> GetImageAsync(Guid id, CancellationToken ct = default)
     {
-        var result = await _symbols.GetImageAsync(id, GetCurrentUserId(), ct);
+        var result = await _symbols.GetImageAsync(id, User.GetUserId(), ct);
         if (!result.IsSuccess) return result.ToActionResult();
 
         var blob = result.Value!;
@@ -119,7 +117,7 @@ public class SymbolsController : ControllerBase
     public async Task<IActionResult> GetOccurrencesAsync(
         Guid id, [FromQuery] int take = 100, [FromQuery] int skip = 0, CancellationToken ct = default)
     {
-        var result = await _symbols.GetOccurrencesAsync(id, GetCurrentUserId(), take, skip, ct);
+        var result = await _symbols.GetOccurrencesAsync(id, User.GetUserId(), take, skip, ct);
         return result.ToActionResult();
     }
 
@@ -127,13 +125,8 @@ public class SymbolsController : ControllerBase
     [ProducesResponseType(typeof(RecognizeSymbolResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> RecognizeAsync(Guid id, CancellationToken ct = default)
     {
-        var result = await _symbols.RecognizeAsync(id, GetCurrentUserId(), ct);
+        var result = await _symbols.RecognizeAsync(id, User.GetUserId(), ct);
         return result.ToActionResult();
     }
 
-    private Guid GetCurrentUserId()
-    {
-        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        return Guid.TryParse(userIdClaim, out var userId) ? userId : Guid.Empty;
-    }
 }

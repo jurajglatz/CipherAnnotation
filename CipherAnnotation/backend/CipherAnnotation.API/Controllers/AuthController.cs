@@ -5,6 +5,7 @@ using CipherAnnotation.Core.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace CipherAnnotation.API.Controllers;
 
@@ -13,11 +14,19 @@ namespace CipherAnnotation.API.Controllers;
 public class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
+    private readonly IMemoryCache _cache;
     private readonly ILogger<AuthController> _logger;
 
-    public AuthController(IAuthService authService, ILogger<AuthController> logger)
+    // Per-email throttle complements the per-IP rate limiter: a botnet can
+    // spread credential-stuffing across many IPs but each target email is a
+    // single key here.
+    private const int LoginAttemptsPerEmailPerMinute = 10;
+    private static readonly TimeSpan LoginEmailWindow = TimeSpan.FromMinutes(1);
+
+    public AuthController(IAuthService authService, IMemoryCache cache, ILogger<AuthController> logger)
     {
         _authService = authService;
+        _cache = cache;
         _logger = logger;
     }
 
@@ -56,6 +65,13 @@ public class AuthController : ControllerBase
     {
         if (!ModelState.IsValid) return BadRequest(ModelState);
 
+        if (!TryRecordLoginAttempt(request.Email))
+        {
+            _logger.LogWarning("Login throttled for {Email}: per-email limit exceeded.", request.Email);
+            return StatusCode(StatusCodes.Status429TooManyRequests,
+                new { message = "Too many login attempts for this account. Try again shortly." });
+        }
+
         var user = await _authService.LoginAsync(request.Email, request.Password, ct);
         if (user == null)
         {
@@ -69,8 +85,10 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("google-login")]
+    [EnableRateLimiting("auth-google")]
     [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     public async Task<IActionResult> GoogleLoginAsync(
         [FromBody] GoogleLoginRequest request, CancellationToken ct = default)
     {
@@ -92,8 +110,10 @@ public class AuthController : ControllerBase
 
     [HttpPost("refresh")]
     [AllowAnonymous]
+    [EnableRateLimiting("auth-refresh")]
     [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     public async Task<IActionResult> RefreshAsync(
         [FromBody] RefreshRequest request, CancellationToken ct = default)
     {
@@ -139,6 +159,20 @@ public class AuthController : ControllerBase
             Email = email,
             Name = name,
         });
+    }
+
+    private bool TryRecordLoginAttempt(string email)
+    {
+        if (string.IsNullOrWhiteSpace(email)) return true;
+        var key = $"login-attempts:{email.Trim().ToLowerInvariant()}";
+        var count = _cache.GetOrCreate(key, entry =>
+        {
+            entry.AbsoluteExpirationRelativeToNow = LoginEmailWindow;
+            return 0;
+        });
+        if (count >= LoginAttemptsPerEmailPerMinute) return false;
+        _cache.Set(key, count + 1, LoginEmailWindow);
+        return true;
     }
 
     private async Task<AuthResponse> BuildAuthResponseAsync(User user, CancellationToken ct)

@@ -4,7 +4,6 @@ using CipherAnnotation.Core.DTOs.Document;
 using CipherAnnotation.Core.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using System.Security.Claims;
 
 namespace CipherAnnotation.API.Controllers;
 
@@ -27,8 +26,7 @@ public class DocumentsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetUserDocumentsAsync(CancellationToken ct = default)
     {
-        var userId = GetCurrentUserId();
-        if (userId == Guid.Empty) return Unauthorized();
+        var userId = User.GetUserId();
         var result = await _documents.GetUserDocumentsAsync(userId, ct);
         return result.ToActionResult();
     }
@@ -38,8 +36,7 @@ public class DocumentsController : ControllerBase
     [ProducesResponseType(typeof(IEnumerable<DocumentDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetPublicDocumentsAsync(CancellationToken ct = default)
     {
-        var userId = GetCurrentUserId();
-        var result = await _documents.GetPublicDocumentsAsync(userId == Guid.Empty ? null : userId, ct);
+        var result = await _documents.GetPublicDocumentsAsync(User.TryGetUserId(), ct);
         return result.ToActionResult();
     }
 
@@ -50,8 +47,7 @@ public class DocumentsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetDocumentByIdAsync(Guid id, CancellationToken ct = default)
     {
-        var userId = GetCurrentUserId();
-        if (userId == Guid.Empty) return Unauthorized();
+        var userId = User.GetUserId();
         var result = await _documents.GetByIdAsync(id, userId, ct);
         return result.ToActionResult();
     }
@@ -67,8 +63,7 @@ public class DocumentsController : ControllerBase
     {
         if (!ModelState.IsValid) return BadRequest(ModelState);
 
-        var userId = GetCurrentUserId();
-        if (userId == Guid.Empty) return Unauthorized();
+        var userId = User.GetUserId();
 
         if (files != null && files.Count > 0)
         {
@@ -94,8 +89,7 @@ public class DocumentsController : ControllerBase
     {
         if (!ModelState.IsValid) return BadRequest(ModelState);
 
-        var userId = GetCurrentUserId();
-        if (userId == Guid.Empty) return Unauthorized();
+        var userId = User.GetUserId();
 
         var result = await _documents.UpdateAsync(id, userId, request, ct);
         return result.ToActionResult();
@@ -108,8 +102,7 @@ public class DocumentsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteDocumentAsync(Guid id, CancellationToken ct = default)
     {
-        var userId = GetCurrentUserId();
-        if (userId == Guid.Empty) return Unauthorized();
+        var userId = User.GetUserId();
 
         var result = await _documents.DeleteAsync(id, userId, ct);
         return result.ToActionResult();
@@ -128,8 +121,7 @@ public class DocumentsController : ControllerBase
     {
         if (!ModelState.IsValid) return BadRequest(ModelState);
 
-        var userId = GetCurrentUserId();
-        if (userId == Guid.Empty) return Unauthorized();
+        var userId = User.GetUserId();
 
         var result = await _documents.ShareAsync(id, userId, request, ct);
         return result.ToCreatedResult();
@@ -142,8 +134,7 @@ public class DocumentsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetSharesAsync(Guid id, CancellationToken ct = default)
     {
-        var userId = GetCurrentUserId();
-        if (userId == Guid.Empty) return Unauthorized();
+        var userId = User.GetUserId();
 
         var result = await _documents.GetSharesAsync(id, userId, ct);
         return result.ToActionResult();
@@ -156,8 +147,7 @@ public class DocumentsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> RemoveShareAsync(Guid id, Guid shareId, CancellationToken ct = default)
     {
-        var userId = GetCurrentUserId();
-        if (userId == Guid.Empty) return Unauthorized();
+        var userId = User.GetUserId();
 
         var result = await _documents.RemoveShareAsync(id, shareId, userId, ct);
         return result.ToActionResult();
@@ -170,17 +160,10 @@ public class DocumentsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DuplicateDocumentAsync(Guid id, CancellationToken ct = default)
     {
-        var userId = GetCurrentUserId();
-        if (userId == Guid.Empty) return Unauthorized();
+        var userId = User.GetUserId();
 
         var result = await _documents.DuplicateAsync(id, userId, ct);
         return result.ToCreatedResult();
-    }
-
-    private Guid GetCurrentUserId()
-    {
-        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        return Guid.TryParse(userIdClaim, out var userId) ? userId : Guid.Empty;
     }
 
     private static async Task<IReadOnlyList<UploadedFile>> ReadUploadsAsync(

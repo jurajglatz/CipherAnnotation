@@ -29,7 +29,7 @@ public class ExportController : ControllerBase
     public async Task<IActionResult> ExportCocoAsync([FromBody] ExportRequest request, CancellationToken ct = default)
     {
         if (!ModelState.IsValid) return BadRequest(ModelState);
-        var result = await _export.ExportCocoAsync(GetCurrentUserId(), request, ct);
+        var result = await _export.ExportCocoAsync(User.GetUserId(), request, ct);
         return ArtifactResult(result);
     }
 
@@ -37,7 +37,7 @@ public class ExportController : ControllerBase
     public async Task<IActionResult> ExportYoloAsync([FromBody] ExportRequest request, CancellationToken ct = default)
     {
         if (!ModelState.IsValid) return BadRequest(ModelState);
-        var result = await _export.ExportYoloAsync(GetCurrentUserId(), request, ct);
+        var result = await _export.ExportYoloAsync(User.GetUserId(), request, ct);
         return ArtifactResult(result);
     }
 
@@ -45,7 +45,7 @@ public class ExportController : ControllerBase
     public async Task<IActionResult> ExportTfRecordAsync([FromBody] ExportRequest request, CancellationToken ct = default)
     {
         if (!ModelState.IsValid) return BadRequest(ModelState);
-        var result = await _export.ExportTfRecordAsync(GetCurrentUserId(), request, ct);
+        var result = await _export.ExportTfRecordAsync(User.GetUserId(), request, ct);
         return ArtifactResult(result);
     }
 
@@ -86,12 +86,6 @@ public class ExportController : ControllerBase
         if (!result.IsSuccess) return result.ToActionResult();
         var a = result.Value!;
         return File(a.Content, a.ContentType, a.FileName);
-    }
-
-    private Guid GetCurrentUserId()
-    {
-        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        return Guid.TryParse(userIdClaim, out var userId) ? userId : Guid.Empty;
     }
 
     private bool IsAdmin()
