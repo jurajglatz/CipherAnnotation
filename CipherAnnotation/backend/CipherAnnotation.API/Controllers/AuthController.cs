@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Configuration;
 
 namespace CipherAnnotation.API.Controllers;
 
@@ -15,7 +16,13 @@ public class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
     private readonly IMemoryCache _cache;
+    private readonly IConfiguration _configuration;
+    private readonly IWebHostEnvironment _env;
     private readonly ILogger<AuthController> _logger;
+
+    // The refresh token rides in an httpOnly Secure SameSite=Strict cookie so
+    // a successful XSS cannot read or exfiltrate it.
+    private const string RefreshCookieName = "refresh_token";
 
     // Per-email throttle complements the per-IP rate limiter: a botnet can
     // spread credential-stuffing across many IPs but each target email is a
@@ -23,10 +30,17 @@ public class AuthController : ControllerBase
     private const int LoginAttemptsPerEmailPerMinute = 10;
     private static readonly TimeSpan LoginEmailWindow = TimeSpan.FromMinutes(1);
 
-    public AuthController(IAuthService authService, IMemoryCache cache, ILogger<AuthController> logger)
+    public AuthController(
+        IAuthService authService,
+        IMemoryCache cache,
+        IConfiguration configuration,
+        IWebHostEnvironment env,
+        ILogger<AuthController> logger)
     {
         _authService = authService;
         _cache = cache;
+        _configuration = configuration;
+        _env = env;
         _logger = logger;
     }
 
@@ -114,17 +128,23 @@ public class AuthController : ControllerBase
     [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
-    public async Task<IActionResult> RefreshAsync(
-        [FromBody] RefreshRequest request, CancellationToken ct = default)
+    public async Task<IActionResult> RefreshAsync(CancellationToken ct = default)
     {
-        var result = await _authService.RefreshAsync(request.RefreshToken, ct);
-        if (result == null)
-            return Unauthorized(new { message = "Invalid or expired refresh token." });
+        var refreshToken = Request.Cookies[RefreshCookieName];
+        if (string.IsNullOrEmpty(refreshToken))
+            return Unauthorized(new { message = "Missing refresh token." });
 
+        var result = await _authService.RefreshAsync(refreshToken, ct);
+        if (result == null)
+        {
+            ClearRefreshCookie();
+            return Unauthorized(new { message = "Invalid or expired refresh token." });
+        }
+
+        SetRefreshCookie(result.RefreshToken);
         return Ok(new AuthResponse
         {
             AccessToken = result.AccessToken,
-            RefreshToken = result.RefreshToken,
             AccessTokenExpiresAt = result.AccessTokenExpiresAt,
             User = ToDto(result.User),
         });
@@ -133,10 +153,12 @@ public class AuthController : ControllerBase
     [HttpPost("logout")]
     [AllowAnonymous]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
-    public async Task<IActionResult> LogoutAsync(
-        [FromBody] RefreshRequest request, CancellationToken ct = default)
+    public async Task<IActionResult> LogoutAsync(CancellationToken ct = default)
     {
-        await _authService.RevokeRefreshTokenAsync(request.RefreshToken, ct);
+        var refreshToken = Request.Cookies[RefreshCookieName];
+        if (!string.IsNullOrEmpty(refreshToken))
+            await _authService.RevokeRefreshTokenAsync(refreshToken, ct);
+        ClearRefreshCookie();
         return NoContent();
     }
 
@@ -178,14 +200,33 @@ public class AuthController : ControllerBase
     private async Task<AuthResponse> BuildAuthResponseAsync(User user, CancellationToken ct)
     {
         var tokens = await _authService.IssueTokensAsync(user, ct);
+        SetRefreshCookie(tokens.RefreshToken);
         return new AuthResponse
         {
             AccessToken = tokens.AccessToken,
-            RefreshToken = tokens.RefreshToken,
             AccessTokenExpiresAt = tokens.AccessTokenExpiresAt,
             User = ToDto(user),
         };
     }
+
+    private void SetRefreshCookie(string token)
+    {
+        var lifetimeDays = int.TryParse(_configuration["Jwt:RefreshTokenLifetimeDays"], out var d) ? d : 7;
+        Response.Cookies.Append(RefreshCookieName, token, BuildCookieOptions(DateTime.UtcNow.AddDays(lifetimeDays)));
+    }
+
+    private void ClearRefreshCookie()
+        => Response.Cookies.Append(RefreshCookieName, string.Empty, BuildCookieOptions(DateTime.UnixEpoch));
+
+    private CookieOptions BuildCookieOptions(DateTimeOffset expires) => new()
+    {
+        HttpOnly = true,
+        // Secure must be off in HTTP dev or the browser drops the cookie.
+        Secure = !_env.IsDevelopment(),
+        SameSite = SameSiteMode.Strict,
+        Path = "/api/auth",
+        Expires = expires,
+    };
 
     private static UserDto ToDto(User user) => new()
     {

@@ -129,13 +129,13 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
     {
-        // No AllowCredentials: we authenticate with bearer tokens in the
-        // Authorization header, not cookies. If refresh tokens move to
-        // httpOnly cookies, add AllowCredentials() back.
+        // AllowCredentials is required so the browser sends the httpOnly
+        // refresh-token cookie on cross-origin /auth/refresh and /auth/logout.
         policy
             .WithOrigins(allowedOrigins)
             .AllowAnyMethod()
-            .AllowAnyHeader();
+            .AllowAnyHeader()
+            .AllowCredentials();
     });
 });
 
