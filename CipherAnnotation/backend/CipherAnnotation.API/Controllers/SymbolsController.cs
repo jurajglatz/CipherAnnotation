@@ -21,6 +21,18 @@ public class SymbolsController : ControllerBase
         _symbols = symbols;
     }
 
+    [HttpPost("auto-fill-content")]
+    [ProducesResponseType(typeof(AutoFillContentResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> AutoFillContentAsync(
+        [FromBody] AutoFillContentRequest request, CancellationToken ct = default)
+    {
+        if (request is null || request.Id == Guid.Empty)
+            return BadRequest(new { message = "scope and id are required." });
+        var result = await _symbols.AutoFillContentAsync(request.Scope, request.Id, User.GetUserId(), ct);
+        return result.ToActionResult();
+    }
+
     [HttpPost]
     [ProducesResponseType(typeof(SymbolDto), StatusCodes.Status201Created)]
     public async Task<IActionResult> CreateAsync(

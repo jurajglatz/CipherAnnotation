@@ -18,3 +18,4 @@ export { useAnnotationHistory } from './useAnnotationHistory';
 export { usePreprocess } from './usePreprocess';
 export { useAnnotationKeyboardShortcuts } from './useAnnotationKeyboardShortcuts';
 export { useDocumentPermission } from './useDocumentPermission';
+export { useAppSettings } from './useAppSettings';

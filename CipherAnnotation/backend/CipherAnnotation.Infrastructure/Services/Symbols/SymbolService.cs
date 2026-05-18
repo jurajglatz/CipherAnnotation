@@ -6,6 +6,9 @@ using CipherAnnotation.Core.Enums;
 using CipherAnnotation.Core.Interfaces;
 using CipherAnnotation.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
+using SixLabors.ImageSharp.Processing;
 
 namespace CipherAnnotation.Infrastructure.Services.Symbols;
 
@@ -13,11 +16,19 @@ public class SymbolService : ISymbolService
 {
     private readonly AppDbContext _db;
     private readonly IFileStorageService _fileStorage;
+    private readonly IVlmSuggestionService _vlm;
+    private readonly IAppSettingsService _settings;
 
-    public SymbolService(AppDbContext db, IFileStorageService fileStorage)
+    public SymbolService(
+        AppDbContext db,
+        IFileStorageService fileStorage,
+        IVlmSuggestionService vlm,
+        IAppSettingsService settings)
     {
         _db = db;
         _fileStorage = fileStorage;
+        _vlm = vlm;
+        _settings = settings;
     }
 
     public async Task<ServiceResult<SymbolDto>> CreateAsync(
@@ -273,4 +284,128 @@ public class SymbolService : ISymbolService
              || a.Page.Document.Visibility == Visibility.Public
              || a.Page.Document.Shares.Any(sh => sh.UserId == currentUserId)), ct);
 
+    public async Task<ServiceResult<AutoFillContentResult>> AutoFillContentAsync(
+        AutoFillScope scope, Guid scopeId, Guid currentUserId, CancellationToken ct = default)
+    {
+        if (currentUserId == Guid.Empty)
+            return ServiceResult<AutoFillContentResult>.Unauthorized();
+
+        if (!await _settings.GetBoolAsync(AppSettingKeys.AutoContentGeneratorEnabled, false, ct))
+            return ServiceResult<AutoFillContentResult>.Forbidden();
+
+        // Edit permission required — we're mutating annotation content.
+        bool canEdit = scope switch
+        {
+            AutoFillScope.Page => await _db.Pages.AsNoTracking().AnyAsync(p =>
+                p.Id == scopeId &&
+                (p.Document!.OwnerId == currentUserId
+                 || p.Document.Shares.Any(sh => sh.UserId == currentUserId && sh.Permission == PermissionType.Edit)), ct),
+            AutoFillScope.Document => await _db.Documents.AsNoTracking().AnyAsync(d =>
+                d.Id == scopeId &&
+                (d.OwnerId == currentUserId
+                 || d.Shares.Any(sh => sh.UserId == currentUserId && sh.Permission == PermissionType.Edit)), ct),
+            _ => false,
+        };
+        if (!canEdit) return ServiceResult<AutoFillContentResult>.Forbidden();
+
+        // Symbol-typed annotations with empty content in scope, with bbox + page image FK.
+        IQueryable<Annotation> q = _db.Annotations
+            .Where(a => a.Type == AnnotationType.Symbol
+                     && (a.Content == null || a.Content == "")
+                     && a.BoundingBox != null);
+        q = scope == AutoFillScope.Page
+            ? q.Where(a => a.PageId == scopeId)
+            : q.Where(a => a.Page!.DocumentId == scopeId);
+
+        var targets = await q
+            .Include(a => a.BoundingBox)
+            .Include(a => a.Page)
+            .ToListAsync(ct);
+
+        var items = new List<AutoFillContentItem>(targets.Count);
+        int filled = 0, skipped = 0;
+
+        // Cache the decoded page image per PageId so we decode each page only once.
+        var pageImageCache = new Dictionary<Guid, Image<Rgba32>?>();
+        // Crop everything up-front so we can hand the whole batch to the model
+        // in a single call (model load cost is paid once, not per-image).
+        var crops = new List<byte[]>(targets.Count);
+        var cropAnnotations = new List<Annotation>(targets.Count);
+        try
+        {
+            foreach (var ann in targets)
+            {
+                var page = ann.Page!;
+                if (!pageImageCache.TryGetValue(page.Id, out var pageImage))
+                {
+                    var blob = await _db.FileBlobs.AsNoTracking()
+                        .FirstOrDefaultAsync(b => b.Id == page.ImageBlobId, ct);
+                    pageImage = blob is null ? null : Image.Load<Rgba32>(blob.Data);
+                    pageImageCache[page.Id] = pageImage;
+                }
+                if (pageImage is null)
+                {
+                    skipped++;
+                    items.Add(new AutoFillContentItem(ann.Id, null, "skipped:no-page-image"));
+                    continue;
+                }
+
+                var bb = ann.BoundingBox!;
+                var x = Math.Max(0, (int)MathF.Floor(bb.X));
+                var y = Math.Max(0, (int)MathF.Floor(bb.Y));
+                var w = Math.Min(pageImage.Width - x, (int)MathF.Ceiling(bb.Width));
+                var h = Math.Min(pageImage.Height - y, (int)MathF.Ceiling(bb.Height));
+                if (w <= 1 || h <= 1)
+                {
+                    skipped++;
+                    items.Add(new AutoFillContentItem(ann.Id, null, "skipped:bbox-too-small"));
+                    continue;
+                }
+
+                byte[] cropPng;
+                using (var clone = pageImage.Clone(ctx => ctx.Crop(new Rectangle(x, y, w, h))))
+                using (var ms = new MemoryStream())
+                {
+                    await clone.SaveAsPngAsync(ms, ct);
+                    cropPng = ms.ToArray();
+                }
+                crops.Add(cropPng);
+                cropAnnotations.Add(ann);
+            }
+
+            if (crops.Count > 0)
+            {
+                var captions = await _vlm.SuggestSymbolContentsAsync(crops, ct);
+                for (var i = 0; i < cropAnnotations.Count; i++)
+                {
+                    var ann = cropAnnotations[i];
+                    var suggestion = i < captions.Count ? captions[i] : null;
+                    if (string.IsNullOrWhiteSpace(suggestion))
+                    {
+                        skipped++;
+                        items.Add(new AutoFillContentItem(ann.Id, null, "skipped:no-suggestion"));
+                        continue;
+                    }
+                    ann.Content = suggestion;
+                    filled++;
+                    items.Add(new AutoFillContentItem(ann.Id, suggestion, "filled"));
+                }
+            }
+
+            if (filled > 0) await _db.SaveChangesAsync(ct);
+        }
+        finally
+        {
+            foreach (var img in pageImageCache.Values) img?.Dispose();
+        }
+
+        return ServiceResult<AutoFillContentResult>.Success(new AutoFillContentResult
+        {
+            Candidates = targets.Count,
+            Filled = filled,
+            SkippedNotOwner = 0,
+            SkippedNoSuggestion = skipped,
+            Items = items,
+        });
+    }
 }

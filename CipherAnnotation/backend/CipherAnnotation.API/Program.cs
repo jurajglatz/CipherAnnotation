@@ -8,8 +8,10 @@ using CipherAnnotation.Infrastructure.Services.Documents;
 using CipherAnnotation.Infrastructure.Services.Export;
 using CipherAnnotation.Infrastructure.Services.ImageProcessing;
 using CipherAnnotation.Infrastructure.Services.Pages;
+using CipherAnnotation.Infrastructure.Services.Settings;
 using CipherAnnotation.Infrastructure.Services.Storage;
 using CipherAnnotation.Infrastructure.Services.Symbols;
+using CipherAnnotation.Infrastructure.Services.Vlm;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
@@ -53,6 +55,9 @@ builder.Services.AddScoped<IPageService, PageService>();
 builder.Services.AddScoped<IAnnotationService, AnnotationService>();
 builder.Services.AddScoped<ISymbolService, SymbolService>();
 builder.Services.AddScoped<IExportOrchestrationService, ExportOrchestrationService>();
+builder.Services.AddScoped<IAppSettingsService, AppSettingsService>();
+// Local TrOCR handwriting model via Python sidecar (ml/caption.py).
+builder.Services.AddScoped<IVlmSuggestionService, TrOcrVlmService>();
 
 // Upload validation (file size, MIME, max pages)
 builder.Services.Configure<UploadValidationOptions>(
@@ -204,7 +209,13 @@ builder.Services.AddMemoryCache();
 // Add Controllers and API Explorer
 // ============================================================================
 
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        // Serialize enums as their string names (e.g. "Admin", "Edit", "Public")
+        // so the frontend TypeScript string-literal types match the wire format.
+        options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+    });
 builder.Services.AddEndpointsApiExplorer();
 
 // ============================================================================
@@ -253,6 +264,31 @@ if (configuration.GetValue("ApplyMigrationsOnStartup", false))
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.Migrate();
+}
+
+// Bootstrap the admin account from config. Promotes the user with the
+// configured email to Admin if they exist; logs (and skips) otherwise so a
+// fresh DB without that user doesn't crash startup.
+{
+    var adminEmail = configuration["Admin:Email"];
+    if (!string.IsNullOrWhiteSpace(adminEmail))
+    {
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("AdminBootstrap");
+        var emailLower = adminEmail.ToLower();
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == emailLower);
+        if (user is null)
+        {
+            logger.LogInformation("Admin bootstrap: no user found with email {Email} — will retry on next startup.", adminEmail);
+        }
+        else if (user.Role != CipherAnnotation.Core.Enums.UserRole.Admin)
+        {
+            user.Role = CipherAnnotation.Core.Enums.UserRole.Admin;
+            await db.SaveChangesAsync();
+            logger.LogInformation("Admin bootstrap: promoted {Email} to Admin.", adminEmail);
+        }
+    }
 }
 
 // ============================================================================

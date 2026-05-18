@@ -895,6 +895,8 @@ export const AnnotationPage: React.FC = () => {
           onTogglePreprocess={handleTogglePreprocess}
           onAutoAnnotate={handleAutoAnnotate}
           isAutoAnnotating={isAutoAnnotating || isAutoAnnotatingAll}
+          pageId={pageId || ''}
+          onSymbolsAutoFilled={refetchAnnotations}
           readOnly={readOnly}
         />
       </div>

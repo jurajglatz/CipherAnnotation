@@ -40,4 +40,12 @@ public interface ISymbolService
 
     Task<ServiceResult<RecognizeSymbolResponse>> RecognizeAsync(
         Guid id, Guid currentUserId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Auto-fills empty <c>Content</c> on Symbol-typed annotations within the
+    /// given page or document scope. Only fills symbols owned by the caller.
+    /// Gated on the AutoContentGenerator feature flag.
+    /// </summary>
+    Task<ServiceResult<AutoFillContentResult>> AutoFillContentAsync(
+        AutoFillScope scope, Guid scopeId, Guid currentUserId, CancellationToken cancellationToken = default);
 }

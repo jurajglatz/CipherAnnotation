@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Tooltip, Modal } from '@/components/shared';
+import AutoFillSymbolsButton from './AutoFillSymbolsButton';
 
 export type ToolType = 'select' | 'annotation' | 'multiselect';
 
@@ -47,6 +48,8 @@ interface ToolbarProps {
   onTogglePreprocess: () => void;
   onAutoAnnotate: () => void;
   isAutoAnnotating: boolean;
+  pageId: string;
+  onSymbolsAutoFilled?: () => void;
   /** When true, hides/disables all mutating actions (used for read-only shares). */
   readOnly?: boolean;
 }
@@ -71,6 +74,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onTogglePreprocess,
   onAutoAnnotate,
   isAutoAnnotating,
+  pageId,
+  onSymbolsAutoFilled,
   readOnly = false,
 }) => {
   const annotationToolDisabled = isPreprocessOpen || readOnly;
@@ -320,6 +325,15 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             </span>
           </button>
         </Tooltip>
+
+        {!readOnly && (
+          <AutoFillSymbolsButton
+            pageId={pageId}
+            documentId={documentId}
+            disabled={isPreprocessOpen}
+            onCompleted={onSymbolsAutoFilled}
+          />
+        )}
 
         {!readOnly && (
           <Tooltip label={isPreprocessOpen ? 'Close preprocessing' : 'Open preprocessing'} position="left">

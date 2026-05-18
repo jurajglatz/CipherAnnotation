@@ -17,17 +17,19 @@ public class DesignTimeDbContextFactory : IDesignTimeDbContextFactory<AppDbConte
     /// <returns>A configured AppDbContext instance.</returns>
     public AppDbContext CreateDbContext(string[] args)
     {
-        // Build configuration from appsettings.json
+        // Build configuration from appsettings.json (optional) + env vars,
+        // so migrations can be generated in CI or locally without a secrets file.
         var configuration = new ConfigurationBuilder()
             .SetBasePath(Directory.GetCurrentDirectory())
-            .AddJsonFile("appsettings.json")
+            .AddJsonFile("appsettings.json", optional: true)
             .Build();
 
-        // Get connection string
         var connectionString = configuration.GetConnectionString("DefaultConnection");
         if (string.IsNullOrEmpty(connectionString))
         {
-            throw new InvalidOperationException("Connection string 'DefaultConnection' not found in appsettings.json");
+            // Design-time only — never used at runtime — but EF needs a parseable
+            // connection string to build the migration model.
+            connectionString = "Host=localhost;Database=cipher_design;Username=postgres;Password=postgres";
         }
 
         // Configure DbContext options
