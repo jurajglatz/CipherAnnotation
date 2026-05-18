@@ -1,7 +1,6 @@
 using CipherAnnotation.Core.Common;
 using CipherAnnotation.Core.DTOs.Page;
 using CipherAnnotation.Core.Interfaces;
-using CipherAnnotation.Infrastructure.Repositories;
 using CipherAnnotation.Infrastructure.Services.Pages;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -20,7 +19,6 @@ public class PageServiceTests
         var img = new FakeImage();
         var storage = new FakeStorage();
         var svc = new PageService(
-            new DocumentRepository(ctx),
             img,
             storage,
             ctx,

@@ -21,30 +21,31 @@ public class PageService : IPageService
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
 
-    private readonly IDocumentRepository _documentRepository;
     private readonly IImageProcessingService _imageProcessing;
     private readonly IFileStorageService _fileStorage;
     private readonly AppDbContext _dbContext;
     private readonly ILogger<PageService> _logger;
 
     public PageService(
-        IDocumentRepository documentRepository,
         IImageProcessingService imageProcessing,
         IFileStorageService fileStorage,
         AppDbContext dbContext,
         ILogger<PageService> logger)
     {
-        _documentRepository = documentRepository;
         _imageProcessing = imageProcessing;
         _fileStorage = fileStorage;
         _dbContext = dbContext;
         _logger = logger;
     }
 
+    private Task<Document?> LoadDocumentAsync(Guid documentId, CancellationToken ct) =>
+        _dbContext.Documents.IncludeDetails()
+            .FirstOrDefaultAsync(d => d.Id == documentId, ct);
+
     public async Task<ServiceResult<IEnumerable<PageDto>>> GetDocumentPagesAsync(
         Guid documentId, Guid currentUserId, CancellationToken ct = default)
     {
-        var document = await _documentRepository.GetByIdAsync(documentId, ct);
+        var document = await LoadDocumentAsync(documentId, ct);
         if (document == null)
             return ServiceResult<IEnumerable<PageDto>>.NotFound("Document not found.");
         if (!CanAccess(document, currentUserId))
@@ -58,7 +59,7 @@ public class PageService : IPageService
     public async Task<ServiceResult<PageDto>> GetPageByIdAsync(
         Guid documentId, Guid pageId, Guid currentUserId, CancellationToken ct = default)
     {
-        var document = await _documentRepository.GetByIdAsync(documentId, ct);
+        var document = await LoadDocumentAsync(documentId, ct);
         if (document == null) return ServiceResult<PageDto>.NotFound("Document not found.");
         if (!CanAccess(document, currentUserId)) return ServiceResult<PageDto>.Forbidden();
 
@@ -72,7 +73,7 @@ public class PageService : IPageService
         Guid documentId, Guid pageId, Guid currentUserId,
         IReadOnlyList<PreprocessOperation> operations, CancellationToken ct = default)
     {
-        var document = await _documentRepository.GetByIdAsync(documentId, ct);
+        var document = await LoadDocumentAsync(documentId, ct);
         if (document == null) return ServiceResult<PageDto>.NotFound("Document not found.");
         if (!CanEdit(document, currentUserId)) return ServiceResult<PageDto>.Forbidden();
 
@@ -93,8 +94,8 @@ public class PageService : IPageService
             return ServiceResult<PageDto>.BadRequest("Page image data not found.");
         }
 
-        _documentRepository.Update(document);
-        await _documentRepository.SaveChangesAsync(ct);
+        
+        await _dbContext.SaveChangesAsync(ct);
 
         foreach (var blobId in blobsToDelete.Distinct())
             await _fileStorage.DeleteAsync(blobId, ct);
@@ -108,7 +109,7 @@ public class PageService : IPageService
     public async Task<ServiceResult<PageDto>> ResetPreprocessingAsync(
         Guid documentId, Guid pageId, Guid currentUserId, CancellationToken ct = default)
     {
-        var document = await _documentRepository.GetByIdAsync(documentId, ct);
+        var document = await LoadDocumentAsync(documentId, ct);
         if (document == null) return ServiceResult<PageDto>.NotFound("Document not found.");
         if (!CanEdit(document, currentUserId)) return ServiceResult<PageDto>.Forbidden();
 
@@ -133,8 +134,8 @@ public class PageService : IPageService
 
         await RefreshDimensionsFromOriginalAsync(page, ct);
 
-        _documentRepository.Update(document);
-        await _documentRepository.SaveChangesAsync(ct);
+        
+        await _dbContext.SaveChangesAsync(ct);
 
         foreach (var blobId in blobsToDelete.Distinct())
             await _fileStorage.DeleteAsync(blobId, ct);
@@ -145,7 +146,7 @@ public class PageService : IPageService
     public async Task<ServiceResult<BlobContent>> GetPageImageAsync(
         Guid documentId, Guid pageId, Guid currentUserId, CancellationToken ct = default)
     {
-        var document = await _documentRepository.GetByIdAsync(documentId, ct);
+        var document = await LoadDocumentAsync(documentId, ct);
         if (document == null) return ServiceResult<BlobContent>.NotFound("Document not found.");
         if (!CanAccess(document, currentUserId)) return ServiceResult<BlobContent>.Forbidden();
 
@@ -158,7 +159,7 @@ public class PageService : IPageService
     public async Task<ServiceResult<BlobContent>> GetProcessedImageAsync(
         Guid documentId, Guid pageId, Guid currentUserId, CancellationToken ct = default)
     {
-        var document = await _documentRepository.GetByIdAsync(documentId, ct);
+        var document = await LoadDocumentAsync(documentId, ct);
         if (document == null) return ServiceResult<BlobContent>.NotFound("Document not found.");
         if (!CanAccess(document, currentUserId)) return ServiceResult<BlobContent>.Forbidden();
 
@@ -231,7 +232,7 @@ public class PageService : IPageService
     public async Task<ServiceResult<PreprocessHistoryStateDto>> GetPreprocessHistoryAsync(
         Guid documentId, Guid pageId, Guid currentUserId, CancellationToken ct = default)
     {
-        var document = await _documentRepository.GetByIdAsync(documentId, ct);
+        var document = await LoadDocumentAsync(documentId, ct);
         if (document == null) return ServiceResult<PreprocessHistoryStateDto>.NotFound("Document not found.");
         if (!CanAccess(document, currentUserId)) return ServiceResult<PreprocessHistoryStateDto>.Forbidden();
 
@@ -244,7 +245,7 @@ public class PageService : IPageService
     public async Task<ServiceResult<PreprocessHistoryStateDto>> UndoPreprocessAsync(
         Guid documentId, Guid pageId, Guid currentUserId, CancellationToken ct = default)
     {
-        var document = await _documentRepository.GetByIdAsync(documentId, ct);
+        var document = await LoadDocumentAsync(documentId, ct);
         if (document == null) return ServiceResult<PreprocessHistoryStateDto>.NotFound("Document not found.");
         if (!CanEdit(document, currentUserId)) return ServiceResult<PreprocessHistoryStateDto>.Forbidden();
 
@@ -262,8 +263,8 @@ public class PageService : IPageService
             page.CurrentPreprocessHistoryId = null;
             page.ProcessedImageBlobId = null;
             await RefreshDimensionsFromOriginalAsync(page, ct);
-            _documentRepository.Update(document);
-            await _documentRepository.SaveChangesAsync(ct);
+            
+            await _dbContext.SaveChangesAsync(ct);
             return ServiceResult<PreprocessHistoryStateDto>.Success(await BuildHistoryStateAsync(page, ct));
         }
 
@@ -286,15 +287,15 @@ public class PageService : IPageService
             page.Height = previous.ResultHeight;
         }
 
-        _documentRepository.Update(document);
-        await _documentRepository.SaveChangesAsync(ct);
+        
+        await _dbContext.SaveChangesAsync(ct);
         return ServiceResult<PreprocessHistoryStateDto>.Success(await BuildHistoryStateAsync(page, ct));
     }
 
     public async Task<ServiceResult<PreprocessHistoryStateDto>> RedoPreprocessAsync(
         Guid documentId, Guid pageId, Guid currentUserId, CancellationToken ct = default)
     {
-        var document = await _documentRepository.GetByIdAsync(documentId, ct);
+        var document = await LoadDocumentAsync(documentId, ct);
         if (document == null) return ServiceResult<PreprocessHistoryStateDto>.NotFound("Document not found.");
         if (!CanEdit(document, currentUserId)) return ServiceResult<PreprocessHistoryStateDto>.Forbidden();
 
@@ -332,8 +333,8 @@ public class PageService : IPageService
         page.Width = next.ResultWidth;
         page.Height = next.ResultHeight;
 
-        _documentRepository.Update(document);
-        await _documentRepository.SaveChangesAsync(ct);
+        
+        await _dbContext.SaveChangesAsync(ct);
         return ServiceResult<PreprocessHistoryStateDto>.Success(await BuildHistoryStateAsync(page, ct));
     }
 
@@ -344,7 +345,7 @@ public class PageService : IPageService
         if (operations == null || operations.Count == 0)
             return ServiceResult<ApplyPreprocessToAllResponse>.BadRequest("At least one operation is required.");
 
-        var document = await _documentRepository.GetByIdAsync(documentId, ct);
+        var document = await LoadDocumentAsync(documentId, ct);
         if (document == null) return ServiceResult<ApplyPreprocessToAllResponse>.NotFound("Document not found.");
         if (!CanEdit(document, currentUserId)) return ServiceResult<ApplyPreprocessToAllResponse>.Forbidden();
 
@@ -375,8 +376,8 @@ public class PageService : IPageService
             }
         }
 
-        _documentRepository.Update(document);
-        await _documentRepository.SaveChangesAsync(ct);
+        
+        await _dbContext.SaveChangesAsync(ct);
 
         foreach (var blobId in blobsToDelete.Distinct())
             await _fileStorage.DeleteAsync(blobId, ct);

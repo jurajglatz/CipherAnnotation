@@ -1,7 +1,6 @@
 using CipherAnnotation.API.Validation;
 using CipherAnnotation.Core.Interfaces;
 using CipherAnnotation.Infrastructure.Data;
-using CipherAnnotation.Infrastructure.Repositories;
 using CipherAnnotation.Infrastructure.Services.Auth;
 using CipherAnnotation.Infrastructure.Services.Annotations;
 using CipherAnnotation.Infrastructure.Services.AutoAnnotation;
@@ -42,10 +41,6 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 
 // Add AutoMapper
 builder.Services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
-
-// Register repositories
-builder.Services.AddScoped<IUserRepository, UserRepository>();
-builder.Services.AddScoped<IDocumentRepository, DocumentRepository>();
 
 // Register services
 builder.Services.AddScoped<IAuthService, AuthService>();

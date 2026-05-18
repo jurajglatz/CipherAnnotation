@@ -1,7 +1,6 @@
 using CipherAnnotation.Core.Common;
 using CipherAnnotation.Core.DTOs.Document;
 using CipherAnnotation.Core.Interfaces;
-using CipherAnnotation.Infrastructure.Repositories;
 using CipherAnnotation.Infrastructure.Services.Documents;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -19,8 +18,6 @@ public class DocumentServiceTests
         var ctx = NewCtx();
         var storage = new FakeStorage();
         var svc = new DocumentService(
-            new DocumentRepository(ctx),
-            new UserRepository(ctx),
             storage,
             ctx,
             NullLogger<DocumentService>.Instance);

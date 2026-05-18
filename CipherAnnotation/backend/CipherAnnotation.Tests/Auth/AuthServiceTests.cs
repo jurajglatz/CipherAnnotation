@@ -1,5 +1,4 @@
 using CipherAnnotation.Core.Interfaces;
-using CipherAnnotation.Infrastructure.Repositories;
 using CipherAnnotation.Infrastructure.Services.Auth;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -27,7 +26,6 @@ public class AuthServiceTests
             .Build();
 
         return new AuthService(
-            new UserRepository(ctx),
             ctx,
             config,
             NullLogger<AuthService>.Instance);
