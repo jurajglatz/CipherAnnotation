@@ -188,6 +188,17 @@ export interface SymbolSuggestion {
   imageUrl: string;
 }
 
+export interface UnlinkedSymbolAnnotation {
+  annotationId: string;
+  content?: string | null;
+  documentId: string;
+  documentTitle: string;
+  pageId: string;
+  pageNumber: number;
+  boundingBox: BoundingBox;
+  createdAt: string;
+}
+
 export interface SymbolOccurrence {
   annotationId: string;
   documentId: string;

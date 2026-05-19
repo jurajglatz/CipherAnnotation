@@ -416,7 +416,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               <li><kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-xs">⌘</kbd> / <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-xs">Ctrl</kbd> + click adds or removes a box from the selection (works on canvas and in the tree).</li>
               <li>Drag any selected box to move the whole group by the same delta.</li>
               <li><kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-xs">Delete</kbd> / <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-xs">Backspace</kbd> removes everything selected in one undoable step.</li>
-              <li><kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-xs">⌘</kbd>/<kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-xs">Ctrl</kbd> + <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-xs">D</kbd> duplicates the selection.</li>
+              <li><kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-xs">⌘</kbd>/<kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-xs">Ctrl</kbd> + <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-xs">D</kbd> duplicates the selection (or <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-xs">⌘/Ctrl + Shift + D</kbd> if your browser still hijacks Ctrl+D).</li>
             </ul>
           </section>
 
@@ -433,7 +433,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             <div className="grid grid-cols-2 gap-y-1 gap-x-4">
               <span><kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-xs">⌘/Ctrl + Z</kbd></span><span>Undo</span>
               <span><kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-xs">⌘/Ctrl + Shift + Z</kbd> / <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-xs">⌘/Ctrl + Y</kbd></span><span>Redo</span>
-              <span><kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-xs">⌘/Ctrl + D</kbd></span><span>Duplicate selection</span>
+              <span><kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-xs">⌘/Ctrl + D</kbd> / <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-xs">⌘/Ctrl + Shift + D</kbd></span><span>Duplicate selection</span>
               <span><kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-xs">Delete</kbd> / <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-xs">Backspace</kbd></span><span>Delete selection</span>
             </div>
           </section>

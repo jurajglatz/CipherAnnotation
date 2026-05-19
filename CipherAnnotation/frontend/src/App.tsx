@@ -20,6 +20,7 @@ import ProfilePage from '@/pages/ProfilePage';
 import AnnotationPage from '@/pages/AnnotationPage';
 import SymbolsPage from '@/pages/SymbolsPage';
 import SymbolDetailPage from '@/pages/SymbolDetailPage';
+import SymbolCaptionPage from '@/pages/SymbolCaptionPage';
 
 function App() {
   return (
@@ -88,6 +89,24 @@ function App() {
             element={
               <ProtectedRoute>
                 <SymbolsPage />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/symbols/uncategorized"
+            element={
+              <ProtectedRoute>
+                <SymbolCaptionPage uncategorized />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/symbols/captions/:caption"
+            element={
+              <ProtectedRoute>
+                <SymbolCaptionPage />
               </ProtectedRoute>
             }
           />

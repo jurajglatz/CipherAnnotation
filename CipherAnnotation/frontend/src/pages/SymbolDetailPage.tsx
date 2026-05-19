@@ -36,6 +36,8 @@ export const SymbolDetailPage: React.FC = () => {
     () => !!symbol && !!user && symbol.ownerUserId === user.id,
     [symbol, user],
   );
+  const isUncaptioned = !symbol?.content?.trim();
+  const canEditCaption = isOwner && !isUncaptioned;
 
   useEffect(() => {
     if (!symbolId) return;
@@ -56,12 +58,18 @@ export const SymbolDetailPage: React.FC = () => {
   }, [symbolId]);
 
   async function saveContent() {
-    if (!symbolId) return;
+    if (!symbolId || !canEditCaption) return;
     try {
       setSaving(true);
-      const updated = await symbolService.update(symbolId, contentDraft || null);
-      setSymbol(updated);
-      toast.success('Saved');
+      const result = await symbolService.renameCaption(symbolId, contentDraft || null);
+      const refreshed = await symbolService.getById(symbolId);
+      setSymbol(refreshed);
+      setContentDraft(refreshed.content ?? '');
+      toast.success(
+        result.updated <= 1
+          ? 'Saved'
+          : `Renamed ${result.updated} symbols in this caption`,
+      );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Save failed');
     } finally {
@@ -145,11 +153,18 @@ export const SymbolDetailPage: React.FC = () => {
             <input
               type="text"
               value={contentDraft}
-              disabled={!isOwner}
+              disabled={!canEditCaption}
               onChange={(e) => setContentDraft(e.target.value)}
-              placeholder={isOwner ? 'e.g. A, ⚹, …' : '(no content)'}
+              placeholder={canEditCaption ? 'e.g. A, ⚹, …' : '(no content)'}
               className="w-full px-3 py-2 bg-parchment-50 border border-sepia-600/30 rounded-md text-ink-900 disabled:opacity-70 focus:outline-none focus:ring-2 focus:ring-ink-900 focus:border-ink-900"
             />
+            {isOwner && (
+              <p className="mt-1 text-[11px] text-sepia-700/80">
+                {isUncaptioned
+                  ? 'Uncaptioned symbols can’t be renamed in bulk.'
+                  : 'Saving renames every symbol you own that shares this caption.'}
+              </p>
+            )}
           </div>
 
           <div className="text-xs text-sepia-700/70 font-mono">{symbol.id}</div>
@@ -164,7 +179,7 @@ export const SymbolDetailPage: React.FC = () => {
               <button
                 type="button"
                 onClick={saveContent}
-                disabled={saving || (contentDraft ?? '') === (symbol.content ?? '')}
+                disabled={!canEditCaption || saving || (contentDraft ?? '') === (symbol.content ?? '')}
                 className="flex items-center gap-1 px-3 py-2 text-sm bg-ink-900 text-parchment-50 rounded hover:bg-ink-900/90 disabled:opacity-40"
               >
                 <Save className="w-3 h-3" /> Save
@@ -190,7 +205,7 @@ export const SymbolDetailPage: React.FC = () => {
             {occurrences.map((o) => (
               <Link
                 key={o.annotationId}
-                to={`/documents/${o.documentId}/annotate/${o.pageId}`}
+                to={`/documents/${o.documentId}/annotate/${o.pageId}?annotation=${o.annotationId}`}
                 title={`${o.documentTitle} — page ${o.pageNumber}`}
                 className="block bg-parchment-50 border border-sepia-600/30 rounded-md p-2 hover:border-ink-900 transition-colors"
               >
