@@ -488,8 +488,13 @@ public class SymbolService : ISymbolService
              || a.Page.Document.Visibility == Visibility.Public
              || a.Page.Document.Shares.Any(sh => sh.UserId == currentUserId)), ct);
 
+    public Task<ServiceResult<AutoFillContentResult>> AutoFillContentAsync(
+        AutoFillScope scope, Guid scopeId, Guid currentUserId, CancellationToken ct = default) =>
+        AutoFillContentAsync(scope, scopeId, currentUserId, progress: null, ct);
+
     public async Task<ServiceResult<AutoFillContentResult>> AutoFillContentAsync(
-        AutoFillScope scope, Guid scopeId, Guid currentUserId, CancellationToken ct = default)
+        AutoFillScope scope, Guid scopeId, Guid currentUserId,
+        IProgress<int>? progress, CancellationToken ct = default)
     {
         if (currentUserId == Guid.Empty)
             return ServiceResult<AutoFillContentResult>.Unauthorized();
@@ -579,7 +584,7 @@ public class SymbolService : ISymbolService
 
             if (crops.Count > 0)
             {
-                var captions = await _vlm.SuggestSymbolContentsAsync(crops, ct);
+                var captions = await _vlm.SuggestSymbolContentsAsync(crops, progress, ct);
                 for (var i = 0; i < cropAnnotations.Count; i++)
                 {
                     var ann = cropAnnotations[i];

@@ -8,6 +8,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Menu, X, LogOut, User, Key, HelpCircle } from 'lucide-react';
 import { useAuth } from '@/hooks';
 import { startTour, TourGroup } from '@/tutorial/tour';
+import NotificationsBell from './NotificationsBell';
 
 const groupForPath = (pathname: string): TourGroup => {
   if (/^\/documents\/[^/]+\/annotate\//.test(pathname)) return 'annotation';
@@ -109,6 +110,7 @@ export const Navbar: React.FC = () => {
           </div>
 
           <div className="hidden md:flex items-center gap-3">
+            {isAuthenticated && <NotificationsBell />}
             {isAuthenticated && (
               <button
                 onClick={() => {

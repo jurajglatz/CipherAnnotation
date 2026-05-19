@@ -54,10 +54,15 @@ builder.Services.AddScoped<IDocumentService, DocumentService>();
 builder.Services.AddScoped<IPageService, PageService>();
 builder.Services.AddScoped<IAnnotationService, AnnotationService>();
 builder.Services.AddScoped<ISymbolService, SymbolService>();
+// Singleton: tracks background symbol-captioning jobs across HTTP requests.
+builder.Services.AddSingleton<IAutoFillJobService, AutoFillJobService>();
 builder.Services.AddScoped<IExportOrchestrationService, ExportOrchestrationService>();
 builder.Services.AddScoped<IAppSettingsService, AppSettingsService>();
 // Local TrOCR handwriting model via Python sidecar (ml/caption.py).
-builder.Services.AddScoped<IVlmSuggestionService, TrOcrVlmService>();
+// Singleton on purpose: the service owns a long-lived Python process that
+// keeps the TrOCR model loaded across requests, so model-load is paid once
+// per host lifetime instead of once per page.
+builder.Services.AddSingleton<IVlmSuggestionService, TrOcrVlmService>();
 
 // Upload validation (file size, MIME, max pages)
 builder.Services.Configure<UploadValidationOptions>(

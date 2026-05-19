@@ -386,10 +386,24 @@ public class AnnotationService : IAnnotationService
     }
 
     public async Task<ServiceResult<IEnumerable<AnnotationDto>>> AutoAnnotateAsync(
-        Guid pageId, Guid currentUserId, CancellationToken ct = default)
+        Guid pageId, Guid currentUserId, bool replaceExisting = false,
+        CancellationToken ct = default)
     {
         if (!await UserCanEditPageAsync(pageId, currentUserId, ct))
             return ServiceResult<IEnumerable<AnnotationDto>>.Forbidden();
+
+        if (replaceExisting)
+        {
+            // Wipe every annotation on the page first. EF cascade is set up so
+            // child bounding boxes / symbol links go away with their owning
+            // annotation row.
+            var existing = await _db.Annotations.Where(a => a.PageId == pageId).ToListAsync(ct);
+            if (existing.Count > 0)
+            {
+                _db.Annotations.RemoveRange(existing);
+                await _db.SaveChangesAsync(ct);
+            }
+        }
 
         var page = await _db.Pages
             .Include(p => p.Document)
@@ -607,6 +621,7 @@ public class AnnotationService : IAnnotationService
 
     public async Task<ServiceResult<AutoAnnotateAllResponse>> AutoAnnotateAllAsync(
         Guid documentId, Guid currentUserId, Guid? excludePageId = null,
+        bool replaceExisting = false,
         CancellationToken ct = default)
     {
         if (!await UserCanEditDocumentAsync(documentId, currentUserId, ct))
@@ -624,7 +639,7 @@ public class AnnotationService : IAnnotationService
             ct.ThrowIfCancellationRequested();
             try
             {
-                var result = await AutoAnnotateAsync(pageId, currentUserId, ct);
+                var result = await AutoAnnotateAsync(pageId, currentUserId, replaceExisting, ct);
                 if (result.IsSuccess)
                 {
                     applied++;

@@ -106,6 +106,7 @@ export const AnnotationPage: React.FC = () => {
     boundingBox?: BoundingBox;
   } | null>(null);
   const [isAutoAnnotating, setIsAutoAnnotating] = useState(false);
+  const [autoAnnotatePrompt, setAutoAnnotatePrompt] = useState(false);
   const [autoAnnotateAllPrompt, setAutoAnnotateAllPrompt] = useState(false);
   const [isAutoAnnotatingAll, setIsAutoAnnotatingAll] = useState(false);
 
@@ -143,11 +144,14 @@ export const AnnotationPage: React.FC = () => {
     }
   };
 
-  const handleAutoAnnotate = useCallback(async () => {
+  // Actual auto-annotate request. Always passes replaceExisting=true so the
+  // page is rebuilt from the YOLO detections — the confirm dialog below is
+  // what protects the user from losing manual work without warning.
+  const runAutoAnnotateCore = useCallback(async () => {
     if (!pageId || isAutoAnnotating) return;
     try {
       setIsAutoAnnotating(true);
-      const created = await annotationService.autoAnnotate(pageId);
+      const created = await annotationService.autoAnnotate(pageId, { replaceExisting: true });
       await Promise.all([refetchAnnotations(), refetchCaptions()]);
       if (created.length === 0) {
         toast('No detections found on this page.', { icon: 'ℹ️' });
@@ -162,6 +166,27 @@ export const AnnotationPage: React.FC = () => {
     }
   }, [pageId, isAutoAnnotating, refetchAnnotations, refetchCaptions, pageList.length]);
 
+  // Existing annotations on this page would be wiped — bounce through a
+  // confirm dialog before doing anything destructive. If there's nothing to
+  // lose we go straight to running.
+  const handleAutoAnnotate = useCallback(() => {
+    if (!pageId || isAutoAnnotating) return;
+    if (annotations.length > 0) {
+      setAutoAnnotatePrompt(true);
+    } else {
+      void runAutoAnnotateCore();
+    }
+  }, [pageId, isAutoAnnotating, annotations.length, runAutoAnnotateCore]);
+
+  const dismissAutoAnnotatePrompt = useCallback(() => {
+    if (!isAutoAnnotating) setAutoAnnotatePrompt(false);
+  }, [isAutoAnnotating]);
+
+  const confirmAutoAnnotate = useCallback(async () => {
+    setAutoAnnotatePrompt(false);
+    await runAutoAnnotateCore();
+  }, [runAutoAnnotateCore]);
+
   const dismissAutoAnnotateAll = useCallback(() => {
     if (!isAutoAnnotatingAll) setAutoAnnotateAllPrompt(false);
   }, [isAutoAnnotatingAll]);
@@ -173,6 +198,7 @@ export const AnnotationPage: React.FC = () => {
       setIsAutoAnnotatingAll(true);
       const result = await annotationService.autoAnnotateAll(documentId, {
         excludePageId: pageId ?? undefined,
+        replaceExisting: true,
       });
       await Promise.all([refetchAnnotations(), refetchCaptions()]);
       if (result.failedCount > 0) {
@@ -1093,11 +1119,22 @@ export const AnnotationPage: React.FC = () => {
       </div>
 
       <ConfirmDialog
+        isOpen={autoAnnotatePrompt}
+        onClose={dismissAutoAnnotatePrompt}
+        onConfirm={confirmAutoAnnotate}
+        title="Replace existing annotations?"
+        message={`This page already has ${annotations.length} annotation${annotations.length === 1 ? '' : 's'}. Running auto-annotation will delete them all before adding the new detections. Continue?`}
+        confirmText="Delete and auto-annotate"
+        cancelText="Cancel"
+        isLoading={isAutoAnnotating}
+      />
+
+      <ConfirmDialog
         isOpen={autoAnnotateAllPrompt}
         onClose={dismissAutoAnnotateAll}
         onConfirm={confirmAutoAnnotateAll}
         title="Auto-annotate all pages?"
-        message={`Run auto-annotation on the remaining ${pageList.length - 1} page${pageList.length - 1 === 1 ? '' : 's'} of this document? Detections will be added on top of each page's existing annotations.`}
+        message={`Run auto-annotation on the remaining ${pageList.length - 1} page${pageList.length - 1 === 1 ? '' : 's'} of this document? Every existing annotation on those pages will be deleted before the new detections are added.`}
         confirmText="All pages"
         cancelText="Only this page"
         isLoading={isAutoAnnotatingAll}

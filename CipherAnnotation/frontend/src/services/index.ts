@@ -11,3 +11,4 @@ export { default as captionService } from './captionService';
 export { default as exportService } from './exportService';
 export { default as userService } from './userService';
 export { default as symbolService } from './symbolService';
+export { default as autoFillJobService } from './autoFillJobService';

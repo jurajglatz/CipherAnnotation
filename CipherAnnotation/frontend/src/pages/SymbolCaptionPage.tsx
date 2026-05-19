@@ -8,7 +8,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Check, FolderOpen, Pencil } from 'lucide-react';
+import { ArrowLeft, Check, ChevronLeft, ChevronRight, FolderOpen, Pencil } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
   Document as DocumentEntity,
@@ -30,6 +30,49 @@ const KIND_SECTIONS: { kind: DocKind; label: string }[] = [
   { kind: 'shared', label: 'Shared with me' },
   { kind: 'public', label: 'Public' },
 ];
+
+const PAGE_SIZE = 32;
+
+const SectionPager: React.FC<{
+  page: number;
+  pageCount: number;
+  total: number;
+  onPage: (next: number) => void;
+}> = ({ page, pageCount, total, onPage }) => {
+  if (pageCount <= 1) return null;
+  const from = page * PAGE_SIZE + 1;
+  const to = Math.min(total, (page + 1) * PAGE_SIZE);
+  return (
+    <div className="mt-3 flex items-center justify-between text-xs text-sepia-700">
+      <span>
+        Showing {from}–{to} of {total}
+      </span>
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={() => onPage(page - 1)}
+          disabled={page === 0}
+          className="px-2 py-1 rounded border border-sepia-600/30 hover:border-ink-900 disabled:opacity-40 disabled:hover:border-sepia-600/30"
+          aria-label="Previous page"
+        >
+          <ChevronLeft className="w-3.5 h-3.5" />
+        </button>
+        <span className="px-2 text-ink-900">
+          {page + 1} / {pageCount}
+        </span>
+        <button
+          type="button"
+          onClick={() => onPage(page + 1)}
+          disabled={page >= pageCount - 1}
+          className="px-2 py-1 rounded border border-sepia-600/30 hover:border-ink-900 disabled:opacity-40 disabled:hover:border-sepia-600/30"
+          aria-label="Next page"
+        >
+          <ChevronRight className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+};
 
 interface TileContentEditorProps {
   value: string;
@@ -98,6 +141,18 @@ export const SymbolCaptionPage: React.FC<SymbolCaptionPageProps> = ({ uncategori
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [savingTileKey, setSavingTileKey] = useState<string | null>(null);
   const [docKindById, setDocKindById] = useState<Map<string, DocKind>>(new Map());
+  const [pageByKind, setPageByKind] = useState<Record<DocKind, number>>({
+    mine: 0,
+    shared: 0,
+    public: 0,
+  });
+
+  // Reset per-section paging whenever the caption changes (e.g. navigating
+  // between captions or in/out of the uncategorized bucket) so we don't land
+  // on an empty page that no longer exists in the new dataset.
+  useEffect(() => {
+    setPageByKind({ mine: 0, shared: 0, public: 0 });
+  }, [caption, uncategorized]);
 
   useEffect(() => {
     let cancelled = false;
@@ -416,6 +471,22 @@ export const SymbolCaptionPage: React.FC<SymbolCaptionPageProps> = ({ uncategori
                 const { symbols: secSymbols, unlinked: secUnlinked } = sectionedTiles[kind];
                 const sectionCount = secSymbols.length + secUnlinked.length;
                 if (sectionCount === 0) return null;
+                // Concatenate the two arrays into one logical list so a page
+                // boundary can fall in the middle of "symbols → unlinked"
+                // without us having to coordinate two cursors.
+                const pageCount = Math.max(1, Math.ceil(sectionCount / PAGE_SIZE));
+                const safePage = Math.min(pageByKind[kind], pageCount - 1);
+                const start = safePage * PAGE_SIZE;
+                const end = start + PAGE_SIZE;
+                const symbolsEnd = secSymbols.length;
+                const pageSymbols = secSymbols.slice(
+                  Math.min(start, symbolsEnd),
+                  Math.min(end, symbolsEnd),
+                );
+                const pageUnlinked = secUnlinked.slice(
+                  Math.max(0, start - symbolsEnd),
+                  Math.max(0, end - symbolsEnd),
+                );
                 return (
                   <div key={kind} className="mb-6 last:mb-0">
                     <div className="flex items-baseline gap-2 mb-2">
@@ -425,7 +496,7 @@ export const SymbolCaptionPage: React.FC<SymbolCaptionPageProps> = ({ uncategori
                       </span>
                     </div>
                     <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2">
-                {secSymbols.map((s) => {
+                {pageSymbols.map((s) => {
                   const key = `symbol:${s.id}`;
                   const draft = drafts[key] ?? '';
                   const isOwner = !!user && s.ownerUserId === user.id;
@@ -459,7 +530,7 @@ export const SymbolCaptionPage: React.FC<SymbolCaptionPageProps> = ({ uncategori
                     </div>
                   );
                 })}
-                {secUnlinked.map((a) => {
+                {pageUnlinked.map((a) => {
                   const key = `annotation:${a.annotationId}`;
                   const draft = drafts[key] ?? '';
                   const isSaving = savingTileKey === key;
@@ -495,6 +566,17 @@ export const SymbolCaptionPage: React.FC<SymbolCaptionPageProps> = ({ uncategori
                   );
                 })}
                     </div>
+                    <SectionPager
+                      page={safePage}
+                      pageCount={pageCount}
+                      total={sectionCount}
+                      onPage={(next) =>
+                        setPageByKind((cur) => ({
+                          ...cur,
+                          [kind]: Math.max(0, Math.min(pageCount - 1, next)),
+                        }))
+                      }
+                    />
                   </div>
                 );
               })

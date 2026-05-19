@@ -5,6 +5,7 @@
 
 import { Routes, Route } from 'react-router-dom';
 import { AuthProvider } from '@/context/AuthContext';
+import { AutoFillJobsProvider } from '@/context/AutoFillJobsContext';
 import Layout from '@/components/layout/Layout';
 import ProtectedRoute from '@/components/shared/ProtectedRoute';
 
@@ -25,6 +26,7 @@ import SymbolCaptionPage from '@/pages/SymbolCaptionPage';
 function App() {
   return (
     <AuthProvider>
+      <AutoFillJobsProvider>
       <Routes>
         {/* Landing page (public, no Layout) */}
         <Route path="/" element={<LandingPage />} />
@@ -133,6 +135,7 @@ function App() {
           <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Routes>
+      </AutoFillJobsProvider>
     </AuthProvider>
   );
 }

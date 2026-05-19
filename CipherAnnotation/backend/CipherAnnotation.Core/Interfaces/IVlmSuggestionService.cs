@@ -16,4 +16,13 @@ public interface IVlmSuggestionService
     /// </summary>
     Task<IReadOnlyList<string?>> SuggestSymbolContentsAsync(
         IReadOnlyList<byte[]> images, CancellationToken ct = default);
+
+    /// <summary>
+    /// Variant that reports per-image progress as the sidecar advances. The
+    /// callback receives the 1-based index of the image just finished. Useful
+    /// for the background job tracker that surfaces live progress to the UI.
+    /// </summary>
+    Task<IReadOnlyList<string?>> SuggestSymbolContentsAsync(
+        IReadOnlyList<byte[]> images, IProgress<int>? progress,
+        CancellationToken ct = default);
 }
