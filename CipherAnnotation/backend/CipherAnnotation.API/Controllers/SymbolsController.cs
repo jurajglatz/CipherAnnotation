@@ -36,24 +36,28 @@ public class SymbolsController : ControllerBase
     [HttpPost]
     [ProducesResponseType(typeof(SymbolDto), StatusCodes.Status201Created)]
     public async Task<IActionResult> CreateAsync(
-        [FromForm] IFormFile pngFile,
+        [FromForm] IFormFile? pngFile,
         [FromForm] string? content,
         CancellationToken ct = default)
     {
         var userId = User.GetUserId();
 
-        if (pngFile is null || pngFile.Length == 0)
-            return BadRequest(new { message = "pngFile is required." });
-        if (pngFile.Length > MaxPngBytes)
-            return BadRequest(new { message = $"PNG exceeds {MaxPngBytes} bytes." });
-        if (!string.Equals(pngFile.ContentType, "image/png", StringComparison.OrdinalIgnoreCase))
-            return BadRequest(new { message = "pngFile must be image/png." });
+        byte[]? pngBytes = null;
+        string fileName = "symbol.png";
+        if (pngFile is not null && pngFile.Length > 0)
+        {
+            if (pngFile.Length > MaxPngBytes)
+                return BadRequest(new { message = $"PNG exceeds {MaxPngBytes} bytes." });
+            if (!string.Equals(pngFile.ContentType, "image/png", StringComparison.OrdinalIgnoreCase))
+                return BadRequest(new { message = "pngFile must be image/png." });
 
-        using var ms = new MemoryStream();
-        await pngFile.CopyToAsync(ms, ct);
+            using var ms = new MemoryStream();
+            await pngFile.CopyToAsync(ms, ct);
+            pngBytes = ms.ToArray();
+            fileName = pngFile.FileName ?? "symbol.png";
+        }
 
-        var result = await _symbols.CreateAsync(
-            userId, content, ms.ToArray(), pngFile.FileName ?? "symbol.png", ct);
+        var result = await _symbols.CreateAsync(userId, content, pngBytes, fileName, ct);
         return result.ToCreatedResult();
     }
 
@@ -62,13 +66,43 @@ public class SymbolsController : ControllerBase
     public async Task<IActionResult> ListAsync(
         [FromQuery] string? scope = "all",
         [FromQuery] string? contentSearch = null,
+        [FromQuery] string? documentIds = null,
+        [FromQuery] bool onlyUncaptioned = false,
         [FromQuery] int take = 50,
         [FromQuery] int skip = 0,
         CancellationToken ct = default)
     {
+        var ids = ParseGuidList(documentIds);
         var result = await _symbols.ListAsync(
-            User.GetUserId(), scope ?? "all", contentSearch, take, skip, ct);
+            User.GetUserId(), scope ?? "all", contentSearch, ids, onlyUncaptioned, take, skip, ct);
         return result.ToActionResult();
+    }
+
+    [HttpGet("unlinked-annotations")]
+    [ProducesResponseType(typeof(IEnumerable<UnlinkedSymbolAnnotationDto>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> ListUnlinkedAnnotationsAsync(
+        [FromQuery] string? scope = "all",
+        [FromQuery] string? contentSearch = null,
+        [FromQuery] string? documentIds = null,
+        [FromQuery] bool onlyUncaptioned = false,
+        [FromQuery] int take = 50,
+        [FromQuery] int skip = 0,
+        CancellationToken ct = default)
+    {
+        var ids = ParseGuidList(documentIds);
+        var result = await _symbols.ListUnlinkedAnnotationsAsync(
+            User.GetUserId(), scope ?? "all", contentSearch, ids, onlyUncaptioned, take, skip, ct);
+        return result.ToActionResult();
+    }
+
+    private static IReadOnlyList<Guid>? ParseGuidList(string? csv)
+    {
+        if (string.IsNullOrWhiteSpace(csv)) return null;
+        var parts = csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var ids = new List<Guid>(parts.Length);
+        foreach (var p in parts)
+            if (Guid.TryParse(p, out var g)) ids.Add(g);
+        return ids.Count == 0 ? null : ids;
     }
 
     [HttpGet("suggestions")]
@@ -97,6 +131,27 @@ public class SymbolsController : ControllerBase
     {
         if (!ModelState.IsValid) return BadRequest(ModelState);
         var result = await _symbols.UpdateAsync(id, User.GetUserId(), request.Content, ct);
+        return result.ToActionResult();
+    }
+
+    [HttpPut("rename-caption")]
+    [ProducesResponseType(typeof(RenameCaptionResult), StatusCodes.Status200OK)]
+    public async Task<IActionResult> RenameCaptionByContentAsync(
+        [FromBody] RenameCaptionByContentRequest request, CancellationToken ct = default)
+    {
+        if (request is null) return BadRequest(new { message = "Body is required." });
+        var result = await _symbols.RenameCaptionByContentAsync(
+            User.GetUserId(), request.OldContent, request.NewContent, ct);
+        return result.ToActionResult();
+    }
+
+    [HttpPut("{id:guid}/rename-caption")]
+    [ProducesResponseType(typeof(RenameCaptionResult), StatusCodes.Status200OK)]
+    public async Task<IActionResult> RenameCaptionAsync(
+        Guid id, [FromBody] RenameCaptionRequest request, CancellationToken ct = default)
+    {
+        if (request is null) return BadRequest(new { message = "Body is required." });
+        var result = await _symbols.RenameCaptionAsync(id, User.GetUserId(), request.Content, ct);
         return result.ToActionResult();
     }
 

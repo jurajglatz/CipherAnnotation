@@ -10,18 +10,44 @@ import type {
   SymbolOccurrence,
   SymbolScope,
   SymbolSuggestion,
+  UnlinkedSymbolAnnotation,
 } from '../types';
 
 interface ListParams {
   scope?: SymbolScope;
   contentSearch?: string;
+  /** Comma-joined when passed to the backend. */
+  documentIds?: string[];
+  onlyUncaptioned?: boolean;
   take?: number;
   skip?: number;
 }
 
+function serializeListParams(
+  params: ListParams,
+): Record<string, string | number | boolean | undefined> {
+  return {
+    scope: params.scope,
+    contentSearch: params.contentSearch,
+    documentIds: params.documentIds && params.documentIds.length > 0
+      ? params.documentIds.join(',')
+      : undefined,
+    onlyUncaptioned: params.onlyUncaptioned || undefined,
+    take: params.take,
+    skip: params.skip,
+  };
+}
+
 class SymbolService {
   async list(params: ListParams = {}): Promise<Symbol[]> {
-    const response = await api.get<Symbol[]>('/symbols', { params });
+    const response = await api.get<Symbol[]>('/symbols', { params: serializeListParams(params) });
+    return response.data;
+  }
+
+  async listUnlinkedAnnotations(params: ListParams = {}): Promise<UnlinkedSymbolAnnotation[]> {
+    const response = await api.get<UnlinkedSymbolAnnotation[]>('/symbols/unlinked-annotations', {
+      params: serializeListParams(params),
+    });
     return response.data;
   }
 
@@ -61,6 +87,22 @@ class SymbolService {
     return response.data;
   }
 
+  async renameCaption(id: string, content: string | null): Promise<RenameCaptionResult> {
+    const response = await api.put<RenameCaptionResult>(`/symbols/${id}/rename-caption`, { content });
+    return response.data;
+  }
+
+  async renameCaptionByContent(
+    oldContent: string,
+    newContent: string | null,
+  ): Promise<RenameCaptionResult> {
+    const response = await api.put<RenameCaptionResult>('/symbols/rename-caption', {
+      oldContent,
+      newContent,
+    });
+    return response.data;
+  }
+
   async delete(id: string): Promise<void> {
     await api.delete(`/symbols/${id}`);
   }
@@ -91,6 +133,14 @@ export interface AutoFillContentItem {
   symbolId: string;
   suggestion: string | null;
   status: string;
+}
+
+export interface RenameCaptionResult {
+  oldContent: string | null;
+  newContent: string | null;
+  updated: number;
+  symbolsUpdated: number;
+  annotationsUpdated: number;
 }
 
 export interface AutoFillContentResult {

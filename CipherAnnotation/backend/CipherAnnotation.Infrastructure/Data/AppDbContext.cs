@@ -444,7 +444,7 @@ public class AppDbContext : DbContext
             entity.HasOne(e => e.ImageBlob)
                 .WithMany()
                 .HasForeignKey(e => e.ImageBlobId)
-                .IsRequired()
+                .IsRequired(false)
                 .OnDelete(DeleteBehavior.Restrict);
 
             entity.HasIndex(e => e.OwnerUserId);

@@ -32,14 +32,14 @@ public class SymbolService : ISymbolService
     }
 
     public async Task<ServiceResult<SymbolDto>> CreateAsync(
-        Guid currentUserId, string? content, byte[] pngBytes, string fileName, CancellationToken ct = default)
+        Guid currentUserId, string? content, byte[]? pngBytes, string fileName, CancellationToken ct = default)
     {
         if (currentUserId == Guid.Empty)
             return ServiceResult<SymbolDto>.Unauthorized();
-        if (pngBytes is null || pngBytes.Length == 0)
-            return ServiceResult<SymbolDto>.BadRequest("pngFile is required.");
 
-        var blobId = await _fileStorage.SaveAsync(pngBytes, fileName, "image/png", ct);
+        Guid? blobId = null;
+        if (pngBytes is not null && pngBytes.Length > 0)
+            blobId = await _fileStorage.SaveAsync(pngBytes, fileName, "image/png", ct);
 
         var symbol = new Symbol
         {
@@ -54,7 +54,8 @@ public class SymbolService : ISymbolService
     }
 
     public async Task<ServiceResult<IEnumerable<SymbolDto>>> ListAsync(
-        Guid currentUserId, string scope, string? contentSearch, int take, int skip, CancellationToken ct = default)
+        Guid currentUserId, string scope, string? contentSearch, IReadOnlyList<Guid>? documentIds,
+        bool onlyUncaptioned, int take, int skip, CancellationToken ct = default)
     {
         if (currentUserId == Guid.Empty)
             return ServiceResult<IEnumerable<SymbolDto>>.Unauthorized();
@@ -78,10 +79,20 @@ public class SymbolService : ISymbolService
                     || a.Page.Document.Visibility == Visibility.Public
                     || a.Page.Document.Shares.Any(sh => sh.UserId == currentUserId)))));
 
-        if (!string.IsNullOrWhiteSpace(contentSearch))
+        if (onlyUncaptioned)
+        {
+            query = query.Where(sym => sym.Content == null || sym.Content == "");
+        }
+        else if (!string.IsNullOrWhiteSpace(contentSearch))
         {
             var q = contentSearch.Trim();
             query = query.Where(sym => sym.Content != null && EF.Functions.ILike(sym.Content, $"%{q}%"));
+        }
+
+        if (documentIds is { Count: > 0 })
+        {
+            var docIds = documentIds.ToArray();
+            query = query.Where(sym => sym.Annotations.Any(a => docIds.Contains(a.Page!.DocumentId)));
         }
 
         var rows = await query
@@ -100,6 +111,76 @@ public class SymbolService : ISymbolService
 
         return ServiceResult<IEnumerable<SymbolDto>>.Success(
             rows.Select(r => ToDto(r.Symbol, r.ReferenceCount)));
+    }
+
+    public async Task<ServiceResult<IEnumerable<UnlinkedSymbolAnnotationDto>>> ListUnlinkedAnnotationsAsync(
+        Guid currentUserId, string scope, string? contentSearch, IReadOnlyList<Guid>? documentIds,
+        bool onlyUncaptioned, int take, int skip, CancellationToken ct = default)
+    {
+        if (currentUserId == Guid.Empty)
+            return ServiceResult<IEnumerable<UnlinkedSymbolAnnotationDto>>.Unauthorized();
+
+        take = Math.Clamp(take <= 0 ? 50 : take, 1, 200);
+        skip = Math.Max(0, skip);
+        var s = scope?.ToLowerInvariant() ?? "all";
+
+        IQueryable<Annotation> q = _db.Annotations.AsNoTracking()
+            .Where(a => a.Type == AnnotationType.Symbol
+                     && a.SymbolId == null
+                     && a.BoundingBox != null);
+
+        q = s switch
+        {
+            "mine" => q.Where(a => a.Page!.Document!.OwnerId == currentUserId),
+            "shared" => q.Where(a => a.Page!.Document!.Shares.Any(sh => sh.UserId == currentUserId)),
+            "public" => q.Where(a => a.Page!.Document!.Visibility == Visibility.Public),
+            _ => q.Where(a => a.Page!.Document!.OwnerId == currentUserId
+                           || a.Page.Document.Visibility == Visibility.Public
+                           || a.Page.Document.Shares.Any(sh => sh.UserId == currentUserId)),
+        };
+
+        if (onlyUncaptioned)
+        {
+            q = q.Where(a => a.Content == null || a.Content == "");
+        }
+        else if (!string.IsNullOrWhiteSpace(contentSearch))
+        {
+            var search = contentSearch.Trim();
+            q = q.Where(a => a.Content != null && EF.Functions.ILike(a.Content, $"%{search}%"));
+        }
+
+        if (documentIds is { Count: > 0 })
+        {
+            var docIds = documentIds.ToArray();
+            q = q.Where(a => docIds.Contains(a.Page!.DocumentId));
+        }
+
+        var rows = await q
+            .Include(a => a.BoundingBox)
+            .Include(a => a.Page!).ThenInclude(p => p.Document)
+            .OrderByDescending(a => a.CreatedAt)
+            .Skip(skip)
+            .Take(take)
+            .ToListAsync(ct);
+
+        var dtos = rows.Select(a => new UnlinkedSymbolAnnotationDto
+        {
+            AnnotationId = a.Id,
+            Content = a.Content,
+            DocumentId = a.Page!.DocumentId,
+            DocumentTitle = a.Page.Document!.Title,
+            PageId = a.PageId,
+            PageNumber = a.Page.PageNumber,
+            CreatedAt = a.CreatedAt,
+            BoundingBox = new BoundingBoxDto
+            {
+                X = a.BoundingBox!.X,
+                Y = a.BoundingBox.Y,
+                Width = a.BoundingBox.Width,
+                Height = a.BoundingBox.Height,
+            },
+        });
+        return ServiceResult<IEnumerable<UnlinkedSymbolAnnotationDto>>.Success(dtos);
     }
 
     public async Task<ServiceResult<IEnumerable<SymbolSuggestionDto>>> GetSuggestionsAsync(
@@ -157,6 +238,89 @@ public class SymbolService : ISymbolService
         return ServiceResult<SymbolDto>.Success(ToDto(symbol, refCount));
     }
 
+    public async Task<ServiceResult<RenameCaptionResult>> RenameCaptionAsync(
+        Guid id, Guid currentUserId, string? newContent, CancellationToken ct = default)
+    {
+        if (currentUserId == Guid.Empty)
+            return ServiceResult<RenameCaptionResult>.Unauthorized();
+
+        var anchor = await _db.Symbols.AsNoTracking().FirstOrDefaultAsync(s => s.Id == id, ct);
+        if (anchor is null) return ServiceResult<RenameCaptionResult>.NotFound();
+        if (anchor.OwnerUserId != currentUserId) return ServiceResult<RenameCaptionResult>.Forbidden();
+
+        var oldContent = anchor.Content;
+        if (string.IsNullOrWhiteSpace(oldContent))
+            return ServiceResult<RenameCaptionResult>.BadRequest("Uncaptioned symbols cannot be bulk-renamed.");
+
+        var normalized = string.IsNullOrWhiteSpace(newContent) ? null : newContent;
+        if (normalized == oldContent)
+        {
+            return ServiceResult<RenameCaptionResult>.Success(new RenameCaptionResult
+            {
+                OldContent = oldContent,
+                NewContent = normalized,
+                Updated = 0,
+            });
+        }
+
+        return await RenameByContentInternalAsync(currentUserId, oldContent, normalized, ct);
+    }
+
+    public Task<ServiceResult<RenameCaptionResult>> RenameCaptionByContentAsync(
+        Guid currentUserId, string? oldContent, string? newContent, CancellationToken ct = default)
+    {
+        if (currentUserId == Guid.Empty)
+            return Task.FromResult(ServiceResult<RenameCaptionResult>.Unauthorized());
+        if (string.IsNullOrWhiteSpace(oldContent))
+            return Task.FromResult(ServiceResult<RenameCaptionResult>.BadRequest("oldContent is required."));
+
+        var normalized = string.IsNullOrWhiteSpace(newContent) ? null : newContent;
+        return RenameByContentInternalAsync(currentUserId, oldContent!, normalized, ct);
+    }
+
+    private async Task<ServiceResult<RenameCaptionResult>> RenameByContentInternalAsync(
+        Guid currentUserId, string oldContent, string? newContent, CancellationToken ct)
+    {
+        if (newContent == oldContent)
+        {
+            return ServiceResult<RenameCaptionResult>.Success(new RenameCaptionResult
+            {
+                OldContent = oldContent,
+                NewContent = newContent,
+                Updated = 0,
+                SymbolsUpdated = 0,
+                AnnotationsUpdated = 0,
+            });
+        }
+
+        var symbols = await _db.Symbols
+            .Where(s => s.OwnerUserId == currentUserId && s.Content == oldContent)
+            .ToListAsync(ct);
+        foreach (var s in symbols) s.Content = newContent;
+
+        // Annotations on documents the caller owns or has edit-share on.
+        var annotations = await _db.Annotations
+            .Where(a => a.Type == AnnotationType.Symbol
+                     && a.Content == oldContent
+                     && (a.Page!.Document!.OwnerId == currentUserId
+                         || a.Page.Document.Shares.Any(sh =>
+                                sh.UserId == currentUserId && sh.Permission == PermissionType.Edit)))
+            .ToListAsync(ct);
+        foreach (var a in annotations) a.Content = newContent;
+
+        if (symbols.Count + annotations.Count > 0)
+            await _db.SaveChangesAsync(ct);
+
+        return ServiceResult<RenameCaptionResult>.Success(new RenameCaptionResult
+        {
+            OldContent = oldContent,
+            NewContent = newContent,
+            Updated = symbols.Count + annotations.Count,
+            SymbolsUpdated = symbols.Count,
+            AnnotationsUpdated = annotations.Count,
+        });
+    }
+
     public async Task<ServiceResult<SymbolDto>> UpdateImageAsync(
         Guid id, Guid currentUserId, byte[] pngBytes, string fileName, CancellationToken ct = default)
     {
@@ -192,10 +356,50 @@ public class SymbolService : ISymbolService
         var symbol = await LoadVisibleSymbolAsync(id, currentUserId, ct);
         if (symbol is null) return ServiceResult<BlobContent>.NotFound();
 
-        var blob = await _db.FileBlobs.AsNoTracking().FirstOrDefaultAsync(b => b.Id == symbol.ImageBlobId, ct);
-        if (blob is null) return ServiceResult<BlobContent>.NotFound("Image blob not found.");
+        if (symbol.ImageBlobId.HasValue)
+        {
+            var blob = await _db.FileBlobs.AsNoTracking().FirstOrDefaultAsync(b => b.Id == symbol.ImageBlobId.Value, ct);
+            if (blob is not null)
+                return ServiceResult<BlobContent>.Success(new BlobContent(blob.Data, blob.ContentType, blob.Sha256));
+        }
 
-        return ServiceResult<BlobContent>.Success(new BlobContent(blob.Data, blob.ContentType, blob.Sha256));
+        // Fallback: crop a visible annotation off its page image.
+        var crop = await TryRenderAnnotationCropAsync(id, currentUserId, ct);
+        if (crop is null) return ServiceResult<BlobContent>.NotFound("No image available.");
+        return ServiceResult<BlobContent>.Success(crop);
+    }
+
+    private async Task<BlobContent?> TryRenderAnnotationCropAsync(Guid symbolId, Guid currentUserId, CancellationToken ct)
+    {
+        var ann = await _db.Annotations.AsNoTracking()
+            .Where(a => a.SymbolId == symbolId
+                     && a.BoundingBox != null
+                     && (a.Page!.Document!.OwnerId == currentUserId
+                         || a.Page.Document.Visibility == Visibility.Public
+                         || a.Page.Document.Shares.Any(sh => sh.UserId == currentUserId)))
+            .Include(a => a.BoundingBox)
+            .Include(a => a.Page)
+            .OrderBy(a => a.CreatedAt)
+            .FirstOrDefaultAsync(ct);
+        if (ann?.BoundingBox is null || ann.Page is null) return null;
+
+        var blob = await _db.FileBlobs.AsNoTracking().FirstOrDefaultAsync(b => b.Id == ann.Page.ImageBlobId, ct);
+        if (blob is null) return null;
+
+        using var pageImage = Image.Load<Rgba32>(blob.Data);
+        var bb = ann.BoundingBox;
+        var x = Math.Max(0, (int)MathF.Floor(bb.X));
+        var y = Math.Max(0, (int)MathF.Floor(bb.Y));
+        var w = Math.Min(pageImage.Width - x, (int)MathF.Ceiling(bb.Width));
+        var h = Math.Min(pageImage.Height - y, (int)MathF.Ceiling(bb.Height));
+        if (w <= 1 || h <= 1) return null;
+
+        using var clone = pageImage.Clone(c => c.Crop(new Rectangle(x, y, w, h)));
+        using var ms = new MemoryStream();
+        await clone.SaveAsPngAsync(ms, ct);
+        var bytes = ms.ToArray();
+        var sha = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes));
+        return new BlobContent(bytes, "image/png", sha);
     }
 
     public async Task<ServiceResult<IEnumerable<SymbolOccurrenceDto>>> GetOccurrencesAsync(

@@ -3,9 +3,10 @@ namespace CipherAnnotation.Core.Entities;
 /// <summary>
 /// Canonical drawn symbol. Many <see cref="Annotation"/>s of
 /// <c>Type=Symbol</c> may reference the same <see cref="Symbol"/> via
-/// <see cref="Annotation.SymbolId"/>. The drawing is an immutable PNG stored
-/// in <see cref="FileBlob"/>; the textual <see cref="Content"/> is editable
-/// by the owner (and will eventually be auto-filled by handwriting
+/// <see cref="Annotation.SymbolId"/>. The drawing is an optional PNG stored
+/// in <see cref="FileBlob"/>; if absent, the image endpoint falls back to a
+/// crop of one of the symbol's annotations. The textual <see cref="Content"/>
+/// is editable by the owner (and will eventually be auto-filled by handwriting
 /// recognition).
 /// </summary>
 public class Symbol
@@ -16,7 +17,7 @@ public class Symbol
 
     public string? Content { get; set; }
 
-    public required Guid ImageBlobId { get; set; }
+    public Guid? ImageBlobId { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

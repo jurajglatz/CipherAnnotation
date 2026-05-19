@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { LoadingSpinner, ConfirmDialog } from '@/components/shared';
 import {
@@ -36,6 +36,7 @@ type ToolType = 'select' | 'annotation' | 'multiselect';
 export const AnnotationPage: React.FC = () => {
   const { documentId, pageId } = useParams<{ documentId: string; pageId: string }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   useTour('annotation');
 
   const { readOnly } = useDocumentPermission(documentId);
@@ -197,6 +198,21 @@ export const AnnotationPage: React.FC = () => {
       return fresh === prev ? prev : fresh;
     });
   }, [byId]);
+
+  // Honour ?annotation=ID by selecting that annotation as soon as it loads.
+  // We strip the param after handling so reloads/back-nav don't re-trigger it.
+  useEffect(() => {
+    const wanted = searchParams.get('annotation');
+    if (!wanted) return;
+    const ann = byId.get(wanted);
+    if (!ann) return;
+    setSelectedAnnotation(ann);
+    setSelectedIds(new Set([ann.id]));
+    setCurrentTool('select');
+    const next = new URLSearchParams(searchParams);
+    next.delete('annotation');
+    setSearchParams(next, { replace: true });
+  }, [byId, searchParams, setSearchParams]);
 
   // Effective locks propagate from ancestors to descendants via parentId.
   const effectivelyLockedIds = React.useMemo(() => {
@@ -444,6 +460,65 @@ export const AnnotationPage: React.FC = () => {
     }
   }, [pageId, selectedIds, byId, trackedDelete, runInBatch]);
 
+  // Duplicate one or many selected annotations as siblings. Offsets the
+  // bounding box by a small delta so the copy is visible instead of stacked
+  // exactly on top of the original.
+  const duplicateAnnotation = useCallback(
+    async (ann: Annotation) => {
+      if (!pageId) return null;
+      const data: CreateAnnotationData = {
+        parentId: ann.parentId ?? null,
+        captionId: ann.captionId,
+        type: ann.type,
+        content: ann.content ?? undefined,
+        transcription: ann.transcription ?? undefined,
+        transcriptionRefId: ann.transcriptionRefId ?? null,
+        symbolId: ann.symbolId ?? null,
+        orientation: ann.orientation,
+        boundingBox: {
+          ...ann.boundingBox,
+          x: ann.boundingBox.x + 12,
+          y: ann.boundingBox.y + 12,
+        },
+      };
+      return await createAnnotation(data);
+    },
+    [pageId, createAnnotation],
+  );
+
+  const handleDuplicateSelected = useCallback(async () => {
+    if (readOnly || !pageId) return;
+    const ids = selectedIds.size > 0
+      ? Array.from(selectedIds)
+      : selectedAnnotation
+        ? [selectedAnnotation.id]
+        : [];
+    const targets = ids
+      .map((id) => byId.get(id))
+      .filter((a): a is Annotation => !!a);
+    if (targets.length === 0) return;
+    try {
+      const created: Annotation[] = [];
+      await runInBatch(async () => {
+        for (const a of targets) {
+          const c = await duplicateAnnotation(a);
+          if (c) created.push(c);
+        }
+      });
+      if (created.length > 0) {
+        setSelectedIds(new Set(created.map((a) => a.id)));
+        setSelectedAnnotation(created.length === 1 ? created[0] : null);
+        toast.success(
+          created.length === 1
+            ? 'Annotation duplicated'
+            : `Duplicated ${created.length} annotations`,
+        );
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to duplicate annotation');
+    }
+  }, [readOnly, pageId, selectedIds, selectedAnnotation, byId, duplicateAnnotation, runInBatch]);
+
   // Undo/redo wrappers that also clear selection (matches pre-refactor behavior).
   const handleUndo = useCallback(async () => {
     await rawHandleUndo();
@@ -464,6 +539,7 @@ export const AnnotationPage: React.FC = () => {
       setSelectedIds(new Set());
       setLivePreview(null);
     },
+    onDuplicate: handleDuplicateSelected,
     readOnly,
   });
 
@@ -910,6 +986,15 @@ export const AnnotationPage: React.FC = () => {
             selectedIds={selectedIds}
             onSelect={handleSelectFromTree}
             onDelete={handleDeleteFromTree}
+            onDuplicate={(id) => {
+              const ann = byId.get(id);
+              if (ann) {
+                setSelectedAnnotation(ann);
+                setSelectedIds(new Set([id]));
+                void handleDuplicateSelected();
+              }
+            }}
+            onDuplicateSelected={handleDuplicateSelected}
             lockedIds={lockedIds}
             effectivelyLockedIds={effectivelyLockedIds}
             onToggleLock={toggleLock}
