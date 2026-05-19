@@ -67,9 +67,13 @@ public class AnnotationsController : ControllerBase
     }
 
     [HttpPost("api/pages/{pageId:guid}/auto-annotate")]
-    public async Task<IActionResult> AutoAnnotate(Guid pageId, CancellationToken ct = default)
+    public async Task<IActionResult> AutoAnnotate(
+        Guid pageId,
+        [FromQuery] bool replaceExisting = false,
+        CancellationToken ct = default)
     {
-        var result = await _annotations.AutoAnnotateAsync(pageId, User.GetUserId(), ct);
+        var result = await _annotations.AutoAnnotateAsync(
+            pageId, User.GetUserId(), replaceExisting, ct);
         return result.ToActionResult();
     }
 
@@ -77,9 +81,11 @@ public class AnnotationsController : ControllerBase
     public async Task<IActionResult> AutoAnnotateAll(
         Guid documentId,
         [FromQuery] Guid? excludePageId,
+        [FromQuery] bool replaceExisting = false,
         CancellationToken ct = default)
     {
-        var result = await _annotations.AutoAnnotateAllAsync(documentId, User.GetUserId(), excludePageId, ct);
+        var result = await _annotations.AutoAnnotateAllAsync(
+            documentId, User.GetUserId(), excludePageId, replaceExisting, ct);
         return result.ToActionResult();
     }
 

@@ -80,4 +80,12 @@ public interface ISymbolService
     /// </summary>
     Task<ServiceResult<AutoFillContentResult>> AutoFillContentAsync(
         AutoFillScope scope, Guid scopeId, Guid currentUserId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Variant that reports per-image progress (1-based index of the image the
+    /// VLM just finished). Used by the background job tracker.
+    /// </summary>
+    Task<ServiceResult<AutoFillContentResult>> AutoFillContentAsync(
+        AutoFillScope scope, Guid scopeId, Guid currentUserId,
+        IProgress<int>? progress, CancellationToken cancellationToken = default);
 }

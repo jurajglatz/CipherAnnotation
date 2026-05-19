@@ -84,16 +84,25 @@ class AnnotationService {
     return res.data;
   }
 
-  async autoAnnotate(pageId: string): Promise<Annotation[]> {
-    const res = await api.post<Annotation[]>(`/pages/${pageId}/auto-annotate`);
+  async autoAnnotate(
+    pageId: string,
+    opts: { replaceExisting?: boolean } = {},
+  ): Promise<Annotation[]> {
+    const params = new URLSearchParams();
+    if (opts.replaceExisting) params.set('replaceExisting', 'true');
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    const res = await api.post<Annotation[]>(`/pages/${pageId}/auto-annotate${qs}`);
     return res.data;
   }
 
   async autoAnnotateAll(
     documentId: string,
-    opts: { excludePageId?: string } = {},
+    opts: { excludePageId?: string; replaceExisting?: boolean } = {},
   ): Promise<AutoAnnotateAllResult> {
-    const qs = opts.excludePageId ? `?excludePageId=${opts.excludePageId}` : '';
+    const params = new URLSearchParams();
+    if (opts.excludePageId) params.set('excludePageId', opts.excludePageId);
+    if (opts.replaceExisting) params.set('replaceExisting', 'true');
+    const qs = params.toString() ? `?${params.toString()}` : '';
     const res = await api.post<AutoAnnotateAllResult>(
       `/documents/${documentId}/auto-annotate${qs}`,
     );

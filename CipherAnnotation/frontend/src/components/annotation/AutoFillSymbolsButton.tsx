@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Wand2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Tooltip } from '@/components/shared';
 import { Modal } from '@/components/shared';
-import symbolService from '@/services/symbolService';
 import { useAppSettings } from '@/hooks';
+import { useAutoFillJobs } from '@/context/AutoFillJobsContext';
 
 interface Props {
   pageId: string;
@@ -15,30 +15,45 @@ interface Props {
 
 export const AutoFillSymbolsButton: React.FC<Props> = ({ pageId, documentId, onCompleted, disabled }) => {
   const { settings } = useAppSettings();
+  const { start, jobs } = useAutoFillJobs();
   const [open, setOpen] = useState(false);
-  const [running, setRunning] = useState<null | 'Page' | 'Document'>(null);
+  const [starting, setStarting] = useState<null | 'Page' | 'Document'>(null);
+
+  // Refresh the annotation canvas when *this* page finishes captioning.
+  // We track which page rows we've already fired for so a long-lived completed
+  // job doesn't keep re-triggering refetches on every poll tick.
+  const seenCompletedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!onCompleted) return;
+    for (const job of jobs) {
+      for (const p of job.pages) {
+        if (p.pageId !== pageId) continue;
+        if (p.status !== 'Completed' && p.status !== 'Failed') continue;
+        const key = `${job.jobId}:${p.pageId}`;
+        if (seenCompletedRef.current.has(key)) continue;
+        seenCompletedRef.current.add(key);
+        onCompleted();
+      }
+    }
+  }, [jobs, pageId, onCompleted]);
 
   if (!settings.autoContentGenerator) return null;
 
   const run = async (scope: 'Page' | 'Document') => {
-    setRunning(scope);
+    setStarting(scope);
     try {
       const id = scope === 'Page' ? pageId : documentId;
-      const result = await symbolService.autoFillContent(scope, id);
-      if (result.filled === 0 && result.candidates === 0) {
-        toast('No symbols needing content were found.', { icon: 'ℹ️' });
-      } else {
-        const parts = [`${result.filled} filled`];
-        if (result.skippedNotOwner > 0) parts.push(`${result.skippedNotOwner} not owned`);
-        if (result.skippedNoSuggestion > 0) parts.push(`${result.skippedNoSuggestion} no suggestion`);
-        toast.success(`Auto-fill: ${parts.join(', ')}.`);
-      }
-      onCompleted?.();
+      await start(scope, id);
+      toast.success(
+        scope === 'Page'
+          ? 'Captioning this page in the background — see the bell for progress.'
+          : 'Captioning the whole document in the background — see the bell for progress.',
+      );
       setOpen(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Auto-fill failed.');
+      toast.error(e instanceof Error ? e.message : 'Failed to start auto-fill.');
     } finally {
-      setRunning(null);
+      setStarting(null);
     }
   };
 
@@ -58,29 +73,30 @@ export const AutoFillSymbolsButton: React.FC<Props> = ({ pageId, documentId, onC
         </button>
       </Tooltip>
 
-      <Modal isOpen={open} onClose={() => running === null && setOpen(false)} title="Caption symbols with AI">
+      <Modal isOpen={open} onClose={() => starting === null && setOpen(false)} title="Caption symbols with AI">
         <div className="space-y-4 text-sm text-gray-700">
           <p>
             An AI vision model will look at every Symbol annotation with an empty <code>content</code> field
-            and suggest a short caption. Suggestions are saved directly. This may take a while on large pages.
+            and suggest a short caption. The job runs in the background — you can keep working and watch
+            progress under the bell in the navbar.
           </p>
           <p className="text-gray-500">Pick a scope:</p>
           <div className="flex flex-col gap-2">
             <button
               type="button"
               onClick={() => run('Page')}
-              disabled={running !== null}
+              disabled={starting !== null}
               className="px-4 py-2 rounded bg-sepia-700 text-parchment-50 hover:bg-sepia-800 disabled:opacity-60"
             >
-              {running === 'Page' ? 'Captioning current page…' : 'Current page only'}
+              {starting === 'Page' ? 'Starting…' : 'Current page only'}
             </button>
             <button
               type="button"
               onClick={() => run('Document')}
-              disabled={running !== null}
+              disabled={starting !== null}
               className="px-4 py-2 rounded border border-sepia-600/30 hover:bg-parchment-100 disabled:opacity-60"
             >
-              {running === 'Document' ? 'Captioning whole document…' : 'Whole document'}
+              {starting === 'Document' ? 'Starting…' : 'Whole document'}
             </button>
           </div>
         </div>
