@@ -17,6 +17,7 @@ import {
 } from '@/types';
 import { annotationService, documentService, symbolService } from '@/services';
 import { useAuth } from '@/hooks';
+import { useTour } from '@/hooks/useTour';
 import { LoadingSpinner, Modal } from '@/components/shared';
 import SymbolImage from '@/components/annotation/SymbolImage';
 import SymbolWhiteboard from '@/components/annotation/SymbolWhiteboard';
@@ -84,6 +85,7 @@ export const SymbolCaptionPage: React.FC<SymbolCaptionPageProps> = ({ uncategori
   );
   const navigate = useNavigate();
   const { user } = useAuth();
+  useTour('symbol-caption');
 
   const [symbols, setSymbols] = useState<SymbolEntity[]>([]);
   const [unlinked, setUnlinked] = useState<UnlinkedSymbolAnnotation[]>([]);
@@ -317,6 +319,7 @@ export const SymbolCaptionPage: React.FC<SymbolCaptionPageProps> = ({ uncategori
         <>
           <div className="grid md:grid-cols-[256px_1fr] gap-6 mb-8">
             <div
+              data-tour="caption-image"
               className="relative bg-white border border-sepia-600/30 rounded-md p-2 flex items-center justify-center"
               style={{ height: 256 }}
             >
@@ -365,6 +368,7 @@ export const SymbolCaptionPage: React.FC<SymbolCaptionPageProps> = ({ uncategori
                 ) : (
                   <>
                     <input
+                      data-tour="caption-name"
                       type="text"
                       value={captionDraft}
                       disabled={!canRenameCaption}
@@ -403,7 +407,7 @@ export const SymbolCaptionPage: React.FC<SymbolCaptionPageProps> = ({ uncategori
             </div>
           </div>
 
-          <section>
+          <section data-tour="caption-tile-grid">
             <h2 className="font-serif text-xl text-ink-900 mb-3">All items</h2>
             {tileCount === 0 ? (
               <p className="text-sm text-sepia-700 italic">Nothing has this caption yet.</p>

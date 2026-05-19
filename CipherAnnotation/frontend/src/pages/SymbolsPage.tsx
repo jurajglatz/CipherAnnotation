@@ -19,6 +19,7 @@ import {
 } from '@/types';
 import { documentService, symbolService } from '@/services';
 import { useAuth } from '@/hooks';
+import { useTour } from '@/hooks/useTour';
 import { LoadingSpinner } from '@/components/shared';
 import SymbolImage from '@/components/annotation/SymbolImage';
 import OccurrenceThumbnail from '@/components/annotation/OccurrenceThumbnail';
@@ -370,6 +371,7 @@ export const SymbolsPage: React.FC = () => {
   // Filter/sort/paging state is mirrored to the URL so that navigating to
   // another page and pressing Back restores exactly what the user was looking
   // at — and so any view can be shared as a link.
+  useTour('symbols');
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [scope, setScope] = useState<SymbolScope>(() => {
@@ -385,7 +387,7 @@ export const SymbolsPage: React.FC = () => {
   const [docFilterSearch, setDocFilterSearch] = useState('');
   const [sort, setSort] = useState<SortKey>(() => {
     const v = searchParams.get('sort');
-    return isSort(v) ? v : 'caption-asc';
+    return isSort(v) ? v : 'count-desc';
   });
   const [documents, setDocuments] = useState<TaggedDocument[]>([]);
   const { user } = useAuth();
@@ -414,7 +416,7 @@ export const SymbolsPage: React.FC = () => {
     if (scope !== 'mine') next.set('scope', scope);
     if (debouncedSearch) next.set('q', debouncedSearch);
     if (documentIds.length) next.set('docs', documentIds.join(','));
-    if (sort !== 'caption-asc') next.set('sort', sort);
+    if (sort !== 'count-desc') next.set('sort', sort);
     if (page !== 1) next.set('page', String(page));
     if (pageSize !== 24) next.set('size', String(pageSize));
     setSearchParams(next, { replace: true });
@@ -531,7 +533,7 @@ export const SymbolsPage: React.FC = () => {
               className="w-full pl-9 pr-3 py-2 bg-parchment-50 border border-sepia-600/30 rounded-md text-ink-900 focus:outline-none focus:ring-2 focus:ring-ink-900 focus:border-ink-900"
             />
           </div>
-          <div className="flex flex-wrap gap-1">
+          <div data-tour="symbols-scope" className="flex flex-wrap gap-1">
             {SCOPES.map((s) => (
               <button
                 key={s.id}
@@ -549,7 +551,7 @@ export const SymbolsPage: React.FC = () => {
         </div>
 
         <div className="flex flex-col sm:flex-row sm:items-start gap-3">
-          <div className="flex-1 min-w-0">
+          <div data-tour="symbols-doc-slicer" className="flex-1 min-w-0">
             <DocumentSlicer
               documents={documents}
               selected={documentIds}
@@ -586,7 +588,7 @@ export const SymbolsPage: React.FC = () => {
         </div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-          {pagedGroups.map((group) => {
+          {pagedGroups.map((group, groupIndex) => {
             const representative = group.tiles[0];
             const count = group.tiles.length;
             const isUncaptioned = group.caption === null;
@@ -602,6 +604,7 @@ export const SymbolsPage: React.FC = () => {
                 key={group.key}
                 type="button"
                 onClick={onCardClick}
+                data-tour={groupIndex === 0 ? 'symbol-card' : undefined}
                 className="text-left block group bg-parchment-50 border border-sepia-600/30 rounded-md p-2 transition-colors hover:border-ink-900"
               >
                   <div className="aspect-square bg-white rounded border border-sepia-600/20 flex items-center justify-center overflow-hidden">

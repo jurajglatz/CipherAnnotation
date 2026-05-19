@@ -11,7 +11,13 @@ import { startTour, TourGroup } from '@/tutorial/tour';
 
 const groupForPath = (pathname: string): TourGroup => {
   if (/^\/documents\/[^/]+\/annotate\//.test(pathname)) return 'annotation';
+  if (pathname === '/documents/public') return 'public-documents';
   if (/^\/documents\/[^/]+/.test(pathname)) return 'document-detail';
+  if (pathname === '/symbols') return 'symbols';
+  if (pathname === '/symbols/uncategorized') return 'symbol-caption';
+  if (/^\/symbols\/captions\//.test(pathname)) return 'symbol-caption';
+  if (/^\/symbols\/[^/]+/.test(pathname)) return 'symbol-detail';
+  if (pathname === '/profile') return 'profile';
   return 'documents';
 };
 

@@ -978,7 +978,7 @@ export const AnnotationPage: React.FC = () => {
       </div>
 
       <div className="flex flex-1 overflow-hidden">
-        <div className="w-80 border-r border-sepia-600/20 bg-parchment-50 overflow-y-auto">
+        <div data-tour="annotation-tree" className="w-80 border-r border-sepia-600/20 bg-parchment-50 overflow-y-auto">
           <AnnotationTreePanel
             rootIds={visibleRootIds}
             byId={visibleById}

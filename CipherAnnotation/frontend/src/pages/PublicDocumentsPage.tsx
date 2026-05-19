@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import { Globe, Search } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useDocuments } from '@/hooks/useDocuments';
+import { useTour } from '@/hooks/useTour';
 import { LoadingSpinner } from '@/components/shared';
 import DocumentCard from '@/components/documents/DocumentCard';
 import { Document } from '@/types';
@@ -15,6 +16,7 @@ import { Document } from '@/types';
 export const PublicDocumentsPage: React.FC = () => {
   const navigate = useNavigate();
   const { documents, loading, error, fetchDocuments } = useDocuments();
+  useTour('public-documents');
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
@@ -49,7 +51,7 @@ export const PublicDocumentsPage: React.FC = () => {
 
       {/* Search */}
       <div className="mb-6">
-        <div className="relative max-w-md">
+        <div data-tour="public-search" className="relative max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-sepia-600" />
           <input
             type="text"
@@ -79,12 +81,13 @@ export const PublicDocumentsPage: React.FC = () => {
       {/* Documents Grid */}
       {!loading && filteredDocuments.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredDocuments.map((doc) => (
-            <DocumentCard
-              key={doc.id}
-              document={doc}
-              onView={handleViewDocument}
-            />
+          {filteredDocuments.map((doc, index) => (
+            <div key={doc.id} data-tour={index === 0 ? 'public-document-card' : undefined}>
+              <DocumentCard
+                document={doc}
+                onView={handleViewDocument}
+              />
+            </div>
           ))}
         </div>
       )}

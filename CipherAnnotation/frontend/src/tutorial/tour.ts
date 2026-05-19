@@ -16,7 +16,15 @@ type TourState = {
   step: number;
 };
 
-export type TourGroup = 'documents' | 'document-detail' | 'annotation';
+export type TourGroup =
+  | 'documents'
+  | 'document-detail'
+  | 'annotation'
+  | 'public-documents'
+  | 'symbols'
+  | 'symbol-caption'
+  | 'symbol-detail'
+  | 'profile';
 
 type TourStep = DriveStep & {
   /** Optional advance hint shown when the highlighted element triggers navigation. */
@@ -61,6 +69,22 @@ const groups: Record<TourGroup, TourStep[]> = {
       },
     },
     {
+      element: '[data-tour="share-button"]',
+      popover: {
+        title: 'Share the document',
+        description:
+          'Invite collaborators by email and pick what they can do (view, annotate, manage).',
+      },
+    },
+    {
+      element: '[data-tour="view-mode-toggle"]',
+      popover: {
+        title: 'Grid or list',
+        description:
+          'Switch between a grid of large thumbnails and a compact list. Toggles next to it hide annotations or swap between original and processed images.',
+      },
+    },
+    {
       element: '[data-tour="page-thumb"]',
       popover: {
         title: 'Annotate a page',
@@ -74,7 +98,7 @@ const groups: Record<TourGroup, TourStep[]> = {
       popover: {
         title: 'Export your dataset',
         description:
-          'Once you\'ve annotated pages, export the dataset as COCO, YOLO, or TFRecord.',
+          'Once you\'ve annotated pages, export the dataset as COCO, YOLO, or TFRecord — choose a variant, train/test split, and which captions to include.',
       },
     },
   ],
@@ -84,7 +108,15 @@ const groups: Record<TourGroup, TourStep[]> = {
       popover: {
         title: 'Annotation toolbar',
         description:
-          'Pick a tool (select, box, polygon), zoom, switch between original/processed images, and jump between pages.',
+          'Pick a tool (select, box, polygon), zoom, undo/redo, jump between pages, open preprocessing, and trigger auto-annotation.',
+      },
+    },
+    {
+      element: '[data-tour="annotation-tree"]',
+      popover: {
+        title: 'Annotation tree',
+        description:
+          'Browse the hierarchy of annotations. Select, duplicate, lock, or delete entries here — nested boxes/polygons share parents.',
       },
     },
     {
@@ -101,6 +133,121 @@ const groups: Record<TourGroup, TourStep[]> = {
         title: 'Captions & properties',
         description:
           'Create captions (class labels) and assign them to annotations. Edit the selected annotation\'s details in the properties panel below.',
+      },
+    },
+  ],
+  'public-documents': [
+    {
+      element: '[data-tour="public-search"]',
+      popover: {
+        title: 'Browse the public library',
+        description:
+          'Search documents the community has published. Anyone signed in can open and explore them.',
+      },
+    },
+    {
+      element: '[data-tour="public-document-card"]',
+      popover: {
+        title: 'Open a public document',
+        description:
+          'Click a card to view its pages and annotations. You can duplicate it from your own documents page to start editing your own copy.',
+      },
+    },
+  ],
+  symbols: [
+    {
+      element: '[data-tour="symbols-scope"]',
+      popover: {
+        title: 'Scope',
+        description:
+          'Limit symbols to your own documents, ones shared with you, the public library, or everything you can see.',
+      },
+    },
+    {
+      element: '[data-tour="symbols-doc-slicer"]',
+      popover: {
+        title: 'Filter by document',
+        description:
+          'Pick one or more documents to narrow the grid. Combine this with the search box above to find specific symbols.',
+      },
+    },
+    {
+      element: '[data-tour="symbol-card"]',
+      popover: {
+        title: 'Caption groups',
+        description:
+          'Symbols are grouped by caption. Click a card to drill into the caption (or into the Uncategorized bucket for unlabelled tiles).',
+      },
+      waitForNavigation: true,
+    },
+  ],
+  'symbol-caption': [
+    {
+      element: '[data-tour="caption-image"]',
+      popover: {
+        title: 'Canonical drawing',
+        description:
+          'A single shared drawing that represents this caption. The owner can redraw it — or create one if none exists yet.',
+      },
+    },
+    {
+      element: '[data-tour="caption-name"]',
+      popover: {
+        title: 'Rename the caption',
+        description:
+          'Saving renames every symbol and annotation you own that shares this caption. Items you can\'t edit are left untouched.',
+      },
+    },
+    {
+      element: '[data-tour="caption-tile-grid"]',
+      popover: {
+        title: 'All items',
+        description:
+          'Every symbol and annotation in this group, split by whether it\'s yours, shared, or public. Set content per tile to move it elsewhere.',
+      },
+    },
+  ],
+  'symbol-detail': [
+    {
+      element: '[data-tour="symbol-detail-image"]',
+      popover: {
+        title: 'Canonical drawing',
+        description:
+          'The shared symbol artwork. If you own it, the pencil button opens a whiteboard to redraw it.',
+      },
+    },
+    {
+      element: '[data-tour="symbol-detail-content"]',
+      popover: {
+        title: 'Content',
+        description:
+          'The class label/caption. Saving propagates to every symbol you own under the same caption.',
+      },
+    },
+    {
+      element: '[data-tour="symbol-occurrences"]',
+      popover: {
+        title: 'Occurrences',
+        description:
+          'Every annotation that references this symbol. Click one to jump straight to it inside the annotation editor.',
+      },
+    },
+  ],
+  profile: [
+    {
+      element: '[data-tour="profile-card"]',
+      popover: {
+        title: 'Your account',
+        description:
+          'Email, role and member-since date. Sign out from the top navigation when you\'re done.',
+      },
+    },
+    {
+      element: '[data-tour="profile-admin-settings"]',
+      popover: {
+        title: 'Admin settings',
+        description:
+          'Admin-only toggles such as the AI-assisted symbol content generator that affect every user of the app.',
       },
     },
   ],

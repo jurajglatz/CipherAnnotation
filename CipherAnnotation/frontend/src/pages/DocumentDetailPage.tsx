@@ -361,6 +361,7 @@ export const DocumentDetailPage: React.FC = () => {
             <div className="flex gap-2 flex-wrap">
               {document.myPermission === 'Owner' && (
                 <button
+                  data-tour="share-button"
                   onClick={() => setIsShareOpen(true)}
                   className="flex items-center gap-2 px-4 py-2 bg-ink-900 hover:bg-primary-700 text-parchment-50 rounded-md transition-colors font-semibold shadow-sm"
                 >
@@ -458,7 +459,7 @@ export const DocumentDetailPage: React.FC = () => {
               </button>
             )}
 
-            <div className="flex gap-1 bg-parchment-100 border border-sepia-600/20 rounded-md p-1">
+            <div data-tour="view-mode-toggle" className="flex gap-1 bg-parchment-100 border border-sepia-600/20 rounded-md p-1">
               <button
                 onClick={() => setViewMode('grid')}
                 className={`p-2 rounded transition-colors ${
