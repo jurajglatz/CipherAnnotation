@@ -6,10 +6,12 @@
 import React, { useEffect, useState } from 'react';
 import { User as UserIcon, Mail, Calendar, Shield, Sparkles } from 'lucide-react';
 import { useAuth } from '@/hooks';
+import { useTour } from '@/hooks/useTour';
 import settingsService, { SETTING_KEYS } from '@/services/settingsService';
 
 export const ProfilePage: React.FC = () => {
   const { user } = useAuth();
+  useTour('profile');
   const isAdmin = user?.role === 'Admin';
 
   const [autoContentEnabled, setAutoContentEnabled] = useState(false);
@@ -57,7 +59,7 @@ export const ProfilePage: React.FC = () => {
         Your <em className="italic font-normal text-sepia-700">profile</em>
       </h1>
 
-      <div className="bg-parchment-50/80 backdrop-blur-sm border border-sepia-600/20 rounded-lg shadow-sm overflow-hidden">
+      <div data-tour="profile-card" className="bg-parchment-50/80 backdrop-blur-sm border border-sepia-600/20 rounded-lg shadow-sm overflow-hidden">
         {/* Profile Header */}
         <div className="p-7 border-b border-sepia-600/20">
           <div className="flex items-start gap-6">
@@ -121,7 +123,7 @@ export const ProfilePage: React.FC = () => {
       </div>
 
       {isAdmin && (
-        <div className="mt-8 bg-parchment-50/80 backdrop-blur-sm border border-sepia-600/20 rounded-lg shadow-sm overflow-hidden">
+        <div data-tour="profile-admin-settings" className="mt-8 bg-parchment-50/80 backdrop-blur-sm border border-sepia-600/20 rounded-lg shadow-sm overflow-hidden">
           <div className="p-7 border-b border-sepia-600/20">
             <h2 className="font-serif text-2xl font-semibold text-ink-900 leading-tight">
               Admin <em className="italic font-normal text-sepia-700">settings</em>
@@ -140,10 +142,10 @@ export const ProfilePage: React.FC = () => {
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <p className="text-xs font-semibold tracking-wider uppercase text-sepia-700">
-                      Auto content generator
+                      Symbol content autofill
                     </p>
                     <p className="text-ink-900 font-medium mt-0.5">
-                      Use AI (Gemini) to suggest the <code>content</code> field for symbols
+                      Automatically fill the <code>content</code> field for newly detected symbols
                     </p>
                   </div>
                   <button

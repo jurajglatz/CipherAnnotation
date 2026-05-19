@@ -12,6 +12,7 @@ import toast from 'react-hot-toast';
 import { Symbol as SymbolEntity, SymbolOccurrence } from '@/types';
 import { symbolService } from '@/services';
 import { useAuth } from '@/hooks';
+import { useTour } from '@/hooks/useTour';
 import { LoadingSpinner, ConfirmDialog, Modal } from '@/components/shared';
 import SymbolImage from '@/components/annotation/SymbolImage';
 import SymbolWhiteboard from '@/components/annotation/SymbolWhiteboard';
@@ -21,6 +22,7 @@ export const SymbolDetailPage: React.FC = () => {
   const { symbolId } = useParams<{ symbolId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  useTour('symbol-detail');
 
   const [symbol, setSymbol] = useState<SymbolEntity | null>(null);
   const [occurrences, setOccurrences] = useState<SymbolOccurrence[]>([]);
@@ -125,7 +127,7 @@ export const SymbolDetailPage: React.FC = () => {
       </Link>
 
       <div className="grid md:grid-cols-[256px_1fr] gap-6 mb-8">
-        <div className="relative bg-white border border-sepia-600/30 rounded-md p-2 flex items-center justify-center" style={{ height: 256 }}>
+        <div data-tour="symbol-detail-image" className="relative bg-white border border-sepia-600/30 rounded-md p-2 flex items-center justify-center" style={{ height: 256 }}>
           <SymbolImage
             key={imageVersion}
             symbolId={symbol.id}
@@ -151,6 +153,7 @@ export const SymbolDetailPage: React.FC = () => {
               Content
             </label>
             <input
+              data-tour="symbol-detail-content"
               type="text"
               value={contentDraft}
               disabled={!canEditCaption}
@@ -196,7 +199,7 @@ export const SymbolDetailPage: React.FC = () => {
         </div>
       </div>
 
-      <section>
+      <section data-tour="symbol-occurrences">
         <h2 className="font-serif text-xl text-ink-900 mb-3">Occurrences</h2>
         {occurrences.length === 0 ? (
           <p className="text-sm text-sepia-700 italic">No annotations reference this symbol yet.</p>
