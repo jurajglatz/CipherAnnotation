@@ -81,6 +81,13 @@ class PageService {
   }
 
   /**
+   * Delete a single page from a document
+   */
+  async deletePage(documentId: string, pageId: string): Promise<void> {
+    await api.delete(`/documents/${documentId}/pages/${pageId}`);
+  }
+
+  /**
    * Get page image as blob
    */
   async getPageImage(documentId: string, pageId: string): Promise<Blob> {

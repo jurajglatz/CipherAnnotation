@@ -8,7 +8,7 @@ import { Page, Annotation } from '@/types';
 import api from '@/services/api';
 import annotationService from '@/services/annotationService';
 import { captionColor } from '@/components/annotation/utils/captionColor';
-import { CheckCircle, Clock, AlertCircle } from 'lucide-react';
+import { CheckCircle, Clock, AlertCircle, Trash2 } from 'lucide-react';
 
 interface PageThumbnailProps {
   page: Page;
@@ -18,6 +18,7 @@ interface PageThumbnailProps {
   showProcessingStatus?: boolean;
   showProcessed?: boolean;
   showAnnotations?: boolean;
+  onDelete?: () => void;
 }
 
 export const PageThumbnail: React.FC<PageThumbnailProps> = ({
@@ -28,6 +29,7 @@ export const PageThumbnail: React.FC<PageThumbnailProps> = ({
   showProcessingStatus = false,
   showProcessed = false,
   showAnnotations = false,
+  onDelete,
 }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
@@ -180,8 +182,23 @@ export const PageThumbnail: React.FC<PageThumbnailProps> = ({
           </div>
         )}
 
+        {/* Delete Button */}
+        {onDelete && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+            title="Delete page"
+            aria-label="Delete page"
+            className="absolute top-2 right-2 p-1.5 bg-parchment-50/90 hover:bg-cipher-red text-cipher-red hover:text-parchment-50 rounded-md shadow-sm opacity-0 group-hover:opacity-100 transition-all z-10"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        )}
+
         {/* Hover Overlay */}
-        <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all" />
+        <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all pointer-events-none" />
       </div>
 
       {/* Footer */}

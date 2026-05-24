@@ -93,6 +93,14 @@ public class PagesController : ControllerBase
         return result.ToCreatedResult();
     }
 
+    [HttpDelete("{pageId:guid}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> DeletePageAsync(Guid documentId, Guid pageId, CancellationToken ct = default)
+    {
+        var result = await _pages.DeletePageAsync(documentId, pageId, User.GetUserId(), ct);
+        return result.ToActionResult();
+    }
+
     [HttpGet("{pageId:guid}/preprocess/history")]
     [ProducesResponseType(typeof(PreprocessHistoryStateDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetPreprocessHistoryAsync(Guid documentId, Guid pageId, CancellationToken ct = default)
