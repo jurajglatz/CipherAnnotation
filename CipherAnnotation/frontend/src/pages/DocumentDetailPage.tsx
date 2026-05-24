@@ -54,6 +54,8 @@ export const DocumentDetailPage: React.FC = () => {
     visibility: 'Private' as 'Private' | 'Public',
   });
   const [isAddPagesOpen, setIsAddPagesOpen] = useState(false);
+  const [pageToDelete, setPageToDelete] = useState<Page | null>(null);
+  const [isDeletingPage, setIsDeletingPage] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [exportFormat, setExportFormat] = useState<ExportFormat>('COCO');
   const [cocoVariant, setCocoVariant] = useState<CocoVariant>('BBOX');
@@ -201,6 +203,27 @@ export const DocumentDetailPage: React.FC = () => {
     } finally {
       setIsDeleting(false);
       setIsDeleteOpen(false);
+    }
+  };
+
+  // Handle page delete
+  const handleConfirmDeletePage = async () => {
+    if (!documentId || !pageToDelete) return;
+    try {
+      setIsDeletingPage(true);
+      await pageService.deletePage(documentId, pageToDelete.id);
+      setPages((prev) => prev.filter((p) => p.id !== pageToDelete.id));
+      setDocument((prev) =>
+        prev ? { ...prev, pageCount: Math.max(0, prev.pageCount - 1) } : prev
+      );
+      toast.success('Page deleted');
+      setPageToDelete(null);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to delete page';
+      toast.error(message);
+    } finally {
+      setIsDeletingPage(false);
     }
   };
 
@@ -563,6 +586,11 @@ export const DocumentDetailPage: React.FC = () => {
                     showProcessingStatus={true}
                     showProcessed={showProcessed}
                     showAnnotations={showAnnotations}
+                    onDelete={
+                      document.myPermission === 'Owner'
+                        ? () => setPageToDelete(page)
+                        : undefined
+                    }
                   />
                 </div>
               ))}
@@ -948,6 +976,23 @@ export const DocumentDetailPage: React.FC = () => {
           </div>
         </div>
       </Modal>
+
+      {/* Delete Page Confirmation */}
+      <ConfirmDialog
+        isOpen={pageToDelete !== null}
+        onClose={() => !isDeletingPage && setPageToDelete(null)}
+        onConfirm={handleConfirmDeletePage}
+        title="Delete Page"
+        message={
+          pageToDelete
+            ? `Delete page ${pageToDelete.pageNumber}? Its annotations and preprocessing history will be removed. This cannot be undone.`
+            : ''
+        }
+        confirmText="Delete"
+        cancelText="Cancel"
+        isLoading={isDeletingPage}
+        isDangerous={true}
+      />
 
       {/* Delete Confirmation */}
       <ConfirmDialog

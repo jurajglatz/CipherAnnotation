@@ -229,6 +229,25 @@ public class PageService : IPageService
         return ServiceResult<IEnumerable<PageDto>>.Success(newPages);
     }
 
+    public async Task<ServiceResult> DeletePageAsync(
+        Guid documentId, Guid pageId, Guid currentUserId, CancellationToken ct = default)
+    {
+        var document = await LoadDocumentAsync(documentId, ct);
+        if (document == null) return ServiceResult.NotFound("Document not found.");
+        if (document.OwnerId != currentUserId) return ServiceResult.Forbidden();
+
+        var page = document.Pages.FirstOrDefault(p => p.Id == pageId);
+        if (page == null) return ServiceResult.NotFound("Page not found.");
+
+        _dbContext.Pages.Remove(page);
+        await _dbContext.SaveChangesAsync(ct);
+
+        _logger.LogInformation("Page {PageId} deleted from document {DocumentId} by user {UserId}.",
+            pageId, documentId, currentUserId);
+
+        return ServiceResult.Success();
+    }
+
     public async Task<ServiceResult<PreprocessHistoryStateDto>> GetPreprocessHistoryAsync(
         Guid documentId, Guid pageId, Guid currentUserId, CancellationToken ct = default)
     {

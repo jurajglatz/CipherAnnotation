@@ -29,6 +29,9 @@ public interface IPageService
         Guid documentId, Guid currentUserId,
         IReadOnlyList<UploadedFile> files, CancellationToken cancellationToken = default);
 
+    Task<ServiceResult> DeletePageAsync(
+        Guid documentId, Guid pageId, Guid currentUserId, CancellationToken cancellationToken = default);
+
     Task<ServiceResult<PreprocessHistoryStateDto>> GetPreprocessHistoryAsync(
         Guid documentId, Guid pageId, Guid currentUserId, CancellationToken cancellationToken = default);
 
