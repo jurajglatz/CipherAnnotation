@@ -84,9 +84,6 @@ const LockButton: React.FC<LockButtonProps> = ({
   );
 };
 
-const formatBBox = (bbox: { x: number; y: number; width: number; height: number }) =>
-  `(${Math.round(bbox.x)}, ${Math.round(bbox.y)}, ${Math.round(bbox.width)}, ${Math.round(bbox.height)})`;
-
 const typeIcon = (t: Annotation['type']): string =>
   t === 'Text' ? 'T' : t === 'Cipher' ? 'C' : 'S';
 
@@ -119,8 +116,14 @@ export const AnnotationTreePanel: React.FC<AnnotationTreePanelProps> = ({
 
   const allIds = useMemo(() => Array.from(byId.keys()), [byId]);
 
-  const expandAll = () => setExpanded(new Set(allIds));
-  const collapseAll = () => setExpanded(new Set());
+  const expandAll = () => {
+    setExpanded(new Set(allIds));
+    expandAllGroups();
+  };
+  const collapseAll = () => {
+    setExpanded(new Set());
+    collapseAllGroups();
+  };
 
   // Duplicate-or-multi: if `id` is part of a >1 multi-selection, duplicate group
   const handleDuplicate = (id: string) => {
@@ -155,6 +158,42 @@ export const AnnotationTreePanel: React.FC<AnnotationTreePanelProps> = ({
   const filteredRootIds = searchQuery.trim()
     ? rootIds.filter((id) => subtreeMatches(id))
     : rootIds;
+
+  // Group filtered roots by captionName, preserving first-seen order.
+  const groups = useMemo(() => {
+    const order: string[] = [];
+    const byName = new Map<string, string[]>();
+    for (const id of filteredRootIds) {
+      const a = byId.get(id);
+      if (!a) continue;
+      const key = a.captionName || 'Uncategorized';
+      if (!byName.has(key)) {
+        order.push(key);
+        byName.set(key, []);
+      }
+      byName.get(key)!.push(id);
+    }
+    return order.map((name) => ({
+      name,
+      ids: byName.get(name)!,
+      color: captionColor(name),
+    }));
+  }, [filteredRootIds, byId]);
+
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const toggleGroup = (name: string) =>
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  const isGroupCollapsed = (name: string) =>
+    !searchQuery.trim() && collapsedGroups.has(name);
+
+  const expandAllGroups = () => setCollapsedGroups(new Set());
+  const collapseAllGroups = () =>
+    setCollapsedGroups(new Set(groups.map((g) => g.name)));
 
   return (
     <div className="flex flex-col h-full">
@@ -201,32 +240,61 @@ export const AnnotationTreePanel: React.FC<AnnotationTreePanelProps> = ({
             <p className="text-sm text-ink-900/60 font-serif italic">No annotations yet</p>
           </div>
         ) : (
-          <ul className="space-y-1">
-            {filteredRootIds.map((id) => {
-              const a = byId.get(id);
-              if (!a) return null;
+          <div className="space-y-2">
+            {groups.map((group) => {
+              const collapsed = isGroupCollapsed(group.name);
               return (
-                <AnnotationRow
-                  key={id}
-                  ann={a}
-                  depth={0}
-                  byId={byId}
-                  childrenByParent={childrenByParent}
-                  selectedIds={selectedIds}
-                  expanded={expanded}
-                  onToggleExpanded={toggleExpanded}
-                  isExpanded={isExpanded}
-                  onSelect={onSelect}
-                  onDelete={onDelete}
-                  onDuplicate={onDuplicate ? handleDuplicate : undefined}
-                  lockedIds={lockedIds}
-                  effectivelyLockedIds={effectivelyLockedIds}
-                  onToggleLock={onToggleLock}
-                  readOnly={readOnly}
-                />
+                <div key={group.name}>
+                  <button
+                    onClick={() => toggleGroup(group.name)}
+                    className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm font-semibold text-ink-900 hover:bg-parchment-100 transition-colors"
+                  >
+                    {collapsed ? (
+                      <ChevronRight className="w-4 h-4 flex-shrink-0" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4 flex-shrink-0" />
+                    )}
+                    <span
+                      className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: group.color }}
+                    />
+                    <span className="flex-1 text-left truncate">{group.name}</span>
+                    <span className="text-xs font-normal text-sepia-700/80">
+                      {group.ids.length}
+                    </span>
+                  </button>
+                  {!collapsed && (
+                    <ul className="space-y-1 mt-1">
+                      {group.ids.map((id) => {
+                        const a = byId.get(id);
+                        if (!a) return null;
+                        return (
+                          <AnnotationRow
+                            key={id}
+                            ann={a}
+                            depth={0}
+                            byId={byId}
+                            childrenByParent={childrenByParent}
+                            selectedIds={selectedIds}
+                            expanded={expanded}
+                            onToggleExpanded={toggleExpanded}
+                            isExpanded={isExpanded}
+                            onSelect={onSelect}
+                            onDelete={onDelete}
+                            onDuplicate={onDuplicate ? handleDuplicate : undefined}
+                            lockedIds={lockedIds}
+                            effectivelyLockedIds={effectivelyLockedIds}
+                            onToggleLock={onToggleLock}
+                            readOnly={readOnly}
+                          />
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
               );
             })}
-          </ul>
+          </div>
         )}
       </div>
     </div>
@@ -273,7 +341,6 @@ const AnnotationRow: React.FC<RowProps> = ({
   const directlyLocked = lockedIds?.has(ann.id) ?? false;
   const effectivelyLocked = effectivelyLockedIds?.has(ann.id) ?? false;
   const lockedRowClass = effectivelyLocked ? 'opacity-60 italic' : '';
-  const dotColor = captionColor(ann.captionName);
 
   return (
     <li>
@@ -307,25 +374,17 @@ const AnnotationRow: React.FC<RowProps> = ({
         )}
 
         <span
-          className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-          style={{ backgroundColor: dotColor }}
-        />
+          className="text-[10px] font-mono font-bold text-sepia-700/80 w-4 text-center flex-shrink-0"
+          title={ann.type}
+        >
+          {typeIcon(ann.type)}
+        </span>
 
         <div className="flex-1 min-w-0">
           <div className="truncate font-semibold">
             {ann.captionName} {ann.captionNumber}
           </div>
-          <div className="text-xs text-sepia-700/80 font-mono">
-            {formatBBox(ann.boundingBox)}
-          </div>
         </div>
-
-        <span
-          className="text-xs font-mono font-bold text-sepia-700 px-1.5 py-0.5 bg-parchment-100 rounded"
-          title={ann.type}
-        >
-          {typeIcon(ann.type)}
-        </span>
 
         {onDuplicate && !readOnly && (
           <button

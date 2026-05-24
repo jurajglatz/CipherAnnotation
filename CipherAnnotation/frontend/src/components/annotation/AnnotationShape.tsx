@@ -47,7 +47,8 @@ export const AnnotationShape: React.FC<Props> = ({
         fill={color}
         fillOpacity={selected ? 0.33 : 0.06}
         stroke={color}
-        strokeWidth={selected ? 5 : 4}
+        strokeOpacity={selected ? 1 : 0.6}
+        strokeWidth={selected ? 5 : 3}
         strokeDasharray={dashed ? '4,4' : ''}
         pointerEvents="none"
       />
