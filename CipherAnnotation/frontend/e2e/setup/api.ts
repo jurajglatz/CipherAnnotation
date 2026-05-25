@@ -15,11 +15,37 @@ export async function ensureRegistered(api: APIRequestContext, c: Creds): Promis
 }
 
 export async function login(api: APIRequestContext, c: Creds): Promise<AuthResult> {
-  const res = await api.post('/api/auth/login', {
-    data: { email: c.email, password: c.password },
+  // Retry on 429 (rate-limited) — auth policy allows 5 req/min/IP; rapid re-runs can hit it.
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const res = await api.post('/api/auth/login', {
+      data: { email: c.email, password: c.password },
+    });
+    if (res.status() === 429) {
+      await new Promise((r) => setTimeout(r, 6_000));
+      continue;
+    }
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()) as AuthResult;
+  }
+  throw new Error('login: still rate-limited after retries');
+}
+
+/** Fetch the current user's documents. */
+export async function getDocuments(api: APIRequestContext, accessToken: string): Promise<any[]> {
+  const res = await api.get('/api/documents', {
+    headers: { Authorization: `Bearer ${accessToken}` },
   });
   expect(res.ok()).toBeTruthy();
-  return (await res.json()) as AuthResult;
+  return (await res.json()) as any[];
+}
+
+/** Create the seed document only if one with the given title doesn't already exist. */
+export async function ensureSeedDocument(
+  api: APIRequestContext, accessToken: string, title: string, description: string,
+): Promise<void> {
+  const docs = await getDocuments(api, accessToken);
+  if (docs.some((d) => d?.title === title)) return;
+  await createSeedDocument(api, accessToken, title, description);
 }
 
 /** Create a document with one uploaded page. Returns the created document JSON. */
