@@ -10,8 +10,8 @@ export async function ensureRegistered(api: APIRequestContext, c: Creds): Promis
   const res = await api.post('/api/auth/register', {
     data: { name: c.name, email: c.email, password: c.password },
   });
-  // 200/201 = created; 400/409 = already exists from a previous reused-server run.
-  expect([200, 201, 400, 409]).toContain(res.status());
+  // 200/201 = created; 400/409 = already exists from a previous reused-server run; 429 = rate-limited (also means exists).
+  expect([200, 201, 400, 409, 429]).toContain(res.status());
 }
 
 export async function login(api: APIRequestContext, c: Creds): Promise<AuthResult> {
