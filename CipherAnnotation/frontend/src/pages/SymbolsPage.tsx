@@ -36,8 +36,8 @@ type SortKey = 'caption-asc' | 'caption-desc' | 'count-desc' | 'count-asc';
 const SORTS: { id: SortKey; label: string }[] = [
   { id: 'caption-asc', label: 'Caption A→Z' },
   { id: 'caption-desc', label: 'Caption Z→A' },
-  { id: 'count-desc', label: 'Most items first' },
-  { id: 'count-asc', label: 'Fewest items first' },
+  { id: 'count-desc', label: 'Most uses first' },
+  { id: 'count-asc', label: 'Fewest uses first' },
 ];
 
 const PAGE_SIZES = [12, 24, 48, 96];
@@ -52,6 +52,18 @@ interface SymbolGroup {
   key: string;
   caption: string | null;
   tiles: SymbolTile[];
+}
+
+// "Uses" = true occurrence count for the caption: each canonical Symbol
+// contributes its visible referenceCount, each loose annotation contributes 1.
+// tiles.length would undercount captions whose canonical symbols are referenced
+// by many annotations.
+function groupUses(group: SymbolGroup): number {
+  let total = 0;
+  for (const t of group.tiles) {
+    total += t.kind === 'symbol' ? t.symbol.referenceCount : 1;
+  }
+  return total;
 }
 
 function buildGroups(
@@ -98,10 +110,10 @@ function sortGroups(groups: SymbolGroup[], sort: SortKey): SymbolGroup[] {
       rest.sort((a, b) => -captionAsc(a, b));
       break;
     case 'count-desc':
-      rest.sort((a, b) => b.tiles.length - a.tiles.length || captionAsc(a, b));
+      rest.sort((a, b) => groupUses(b) - groupUses(a) || captionAsc(a, b));
       break;
     case 'count-asc':
-      rest.sort((a, b) => a.tiles.length - b.tiles.length || captionAsc(a, b));
+      rest.sort((a, b) => groupUses(a) - groupUses(b) || captionAsc(a, b));
       break;
   }
   return [...uncategorized, ...rest];
@@ -394,6 +406,7 @@ export const SymbolsPage: React.FC = () => {
   const [symbols, setSymbols] = useState<SymbolEntity[]>([]);
   const [unlinked, setUnlinked] = useState<UnlinkedSymbolAnnotation[]>([]);
   const [loading, setLoading] = useState(false);
+  const [truncated, setTruncated] = useState(false);
   const [page, setPage] = useState(() => {
     const v = Number(searchParams.get('page'));
     return Number.isFinite(v) && v > 0 ? v : 1;
@@ -480,6 +493,9 @@ export const SymbolsPage: React.FC = () => {
         [...ann, ...uncAnn].forEach((a) => annById.set(a.annotationId, a));
         setSymbols([...symById.values()]);
         setUnlinked([...annById.values()]);
+        // The backend clamps take to 200; if either captioned fetch came back
+        // exactly full, more rows likely exist past the window.
+        setTruncated(sym.length >= 200 || ann.length >= 200);
       })
       .catch((e) => {
         if (!cancelled) toast.error(e instanceof Error ? e.message : 'Failed to load symbols');
@@ -580,6 +596,13 @@ export const SymbolsPage: React.FC = () => {
         </div>
       </div>
 
+      {!loading && truncated && (
+        <div className="mb-3 px-3 py-2 text-xs rounded border border-amber-700/40 bg-amber-100/60 text-amber-900">
+          Showing the first 200 results. Narrow with search, scope, or document
+          filters to see more.
+        </div>
+      )}
+
       {loading ? (
         <div className="py-20"><LoadingSpinner /></div>
       ) : groups.length === 0 ? (
@@ -590,7 +613,7 @@ export const SymbolsPage: React.FC = () => {
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
           {pagedGroups.map((group, groupIndex) => {
             const representative = group.tiles[0];
-            const count = group.tiles.length;
+            const uses = groupUses(group);
             const isUncaptioned = group.caption === null;
             const onCardClick = () => {
               if (isUncaptioned) {
@@ -625,7 +648,7 @@ export const SymbolsPage: React.FC = () => {
                     )}
                   </div>
                   <div className="text-[10px] text-sepia-700/70">
-                    {count} {count === 1 ? 'item' : 'items'}
+                    {uses} {uses === 1 ? 'use' : 'uses'}
                   </div>
               </button>
             );

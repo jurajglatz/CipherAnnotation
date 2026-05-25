@@ -170,6 +170,8 @@ public class AnnotationService : IAnnotationService
             .FirstOrDefaultAsync(a => a.Id == id && a.PageId == pageId, ct);
         if (ann is null) return ServiceResult<AnnotationDto>.NotFound("Annotation not found.");
 
+        var previousSymbolId = ann.SymbolId;
+
         var page = await _db.Pages.FirstAsync(p => p.Id == pageId, ct);
 
         if (req.ParentId.HasValue)
@@ -282,6 +284,8 @@ public class AnnotationService : IAnnotationService
         }
 
         await _db.SaveChangesAsync(ct);
+        if (previousSymbolId.HasValue && previousSymbolId != ann.SymbolId)
+            await DeleteSymbolIfOrphanedAsync(previousSymbolId, ct);
         await _db.Entry(ann).Reference(a => a.Caption).LoadAsync(ct);
 
         var pageAnns = await _db.Annotations.Where(a => a.PageId == pageId).ToListAsync(ct);
@@ -304,9 +308,28 @@ public class AnnotationService : IAnnotationService
         var ann = await _db.Annotations.FirstOrDefaultAsync(a => a.Id == id && a.PageId == pageId, ct);
         if (ann is null) return ServiceResult.NotFound("Annotation not found.");
 
+        var previousSymbolId = ann.SymbolId;
         _db.Annotations.Remove(ann);
         await _db.SaveChangesAsync(ct);
+        await DeleteSymbolIfOrphanedAsync(previousSymbolId, ct);
         return ServiceResult.Success();
+    }
+
+    // A canonical Symbol exists to give annotations a shared drawing; once the
+    // last referencing annotation is gone, the entity has no purpose and would
+    // otherwise show up as "0 uses" forever on the Symbols index. Standalone
+    // symbols created directly via SymbolService never pass through here, so
+    // they aren't affected.
+    private async Task DeleteSymbolIfOrphanedAsync(Guid? symbolId, CancellationToken ct)
+    {
+        if (!symbolId.HasValue) return;
+        var stillReferenced = await _db.Annotations
+            .AnyAsync(a => a.SymbolId == symbolId.Value, ct);
+        if (stillReferenced) return;
+        var sym = await _db.Symbols.FirstOrDefaultAsync(s => s.Id == symbolId.Value, ct);
+        if (sym is null) return;
+        _db.Symbols.Remove(sym);
+        await _db.SaveChangesAsync(ct);
     }
 
     public async Task<ServiceResult<BoundingBoxDto>> UpdateBoundingBoxAsync(

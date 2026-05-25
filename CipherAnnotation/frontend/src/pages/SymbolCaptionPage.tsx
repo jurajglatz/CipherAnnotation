@@ -8,7 +8,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Check, ChevronLeft, ChevronRight, FolderOpen, Pencil } from 'lucide-react';
+import { ArrowLeft, Check, ChevronLeft, ChevronRight, FolderOpen, Pencil, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
   Document as DocumentEntity,
@@ -18,7 +18,7 @@ import {
 import { annotationService, documentService, symbolService } from '@/services';
 import { useAuth } from '@/hooks';
 import { useTour } from '@/hooks/useTour';
-import { LoadingSpinner, Modal } from '@/components/shared';
+import { LoadingSpinner, Modal, ConfirmDialog } from '@/components/shared';
 import SymbolImage from '@/components/annotation/SymbolImage';
 import SymbolWhiteboard from '@/components/annotation/SymbolWhiteboard';
 import OccurrenceThumbnail from '@/components/annotation/OccurrenceThumbnail';
@@ -138,6 +138,8 @@ export const SymbolCaptionPage: React.FC<SymbolCaptionPageProps> = ({ uncategori
   const [editingImage, setEditingImage] = useState(false);
   const [savingImage, setSavingImage] = useState(false);
   const [imageVersion, setImageVersion] = useState(0);
+  const [confirmDeleteCanonical, setConfirmDeleteCanonical] = useState(false);
+  const [deletingCanonical, setDeletingCanonical] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [savingTileKey, setSavingTileKey] = useState<string | null>(null);
   const [docKindById, setDocKindById] = useState<Map<string, DocKind>>(new Map());
@@ -249,6 +251,22 @@ export const SymbolCaptionPage: React.FC<SymbolCaptionPageProps> = ({ uncategori
       toast.error(e instanceof Error ? e.message : 'Save failed');
     } finally {
       setSavingImage(false);
+    }
+  }
+
+  async function deleteOwnedCanonical() {
+    if (!ownedSymbol) return;
+    try {
+      setDeletingCanonical(true);
+      await symbolService.delete(ownedSymbol.id);
+      toast.success('Canonical drawing deleted');
+      setImageVersion((v) => v + 1);
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Delete failed');
+    } finally {
+      setDeletingCanonical(false);
+      setConfirmDeleteCanonical(false);
     }
   }
 
@@ -401,15 +419,28 @@ export const SymbolCaptionPage: React.FC<SymbolCaptionPageProps> = ({ uncategori
                 <span className="font-serif italic text-sepia-700/70 text-sm">No drawings yet</span>
               )}
               {canRedraw && (
-                <button
-                  type="button"
-                  onClick={() => setEditingImage(true)}
-                  title={ownedSymbol ? 'Redraw symbol' : 'Create canonical drawing'}
-                  aria-label="Edit drawing"
-                  className="absolute top-2 right-2 p-1.5 rounded-md bg-parchment-50/90 border border-sepia-600/40 text-sepia-700 hover:text-ink-900 hover:bg-parchment-50 shadow-sm"
-                >
-                  <Pencil className="w-3.5 h-3.5" />
-                </button>
+                <div className="absolute top-2 right-2 flex gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setEditingImage(true)}
+                    title={ownedSymbol ? 'Redraw symbol' : 'Create canonical drawing'}
+                    aria-label="Edit drawing"
+                    className="p-1.5 rounded-md bg-parchment-50/90 border border-sepia-600/40 text-sepia-700 hover:text-ink-900 hover:bg-parchment-50 shadow-sm"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                  {ownedSymbol && (
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDeleteCanonical(true)}
+                      title="Delete canonical drawing"
+                      aria-label="Delete canonical drawing"
+                      className="p-1.5 rounded-md bg-parchment-50/90 border border-cipher-red/40 text-cipher-red hover:bg-cipher-red/10 shadow-sm"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               )}
             </div>
 
@@ -597,6 +628,16 @@ export const SymbolCaptionPage: React.FC<SymbolCaptionPageProps> = ({ uncategori
           busy={savingImage}
         />
       </Modal>
+
+      <ConfirmDialog
+        isOpen={confirmDeleteCanonical}
+        title="Delete canonical drawing?"
+        message="The shared drawing for this caption will be removed. Annotations that referenced it remain but lose their linked drawing."
+        confirmText={deletingCanonical ? 'Deleting…' : 'Delete'}
+        isDangerous
+        onConfirm={deleteOwnedCanonical}
+        onClose={() => !deletingCanonical && setConfirmDeleteCanonical(false)}
+      />
     </div>
   );
 };
