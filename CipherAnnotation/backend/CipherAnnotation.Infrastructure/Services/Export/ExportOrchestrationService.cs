@@ -35,14 +35,37 @@ public class ExportOrchestrationService : IExportOrchestrationService
         Guid currentUserId, ExportRequest request, CancellationToken ct = default) =>
         RunExportAsync(currentUserId, request, ct, async (documentId, folder) =>
         {
-            var fileName = $"export_coco_{DateTime.UtcNow:yyyyMMdd_HHmmss}.json";
-            var filePath = Path.Combine(folder, fileName);
-            await _exportService.ExportCocoAsync(documentId, filePath, ct);
-            if (!File.Exists(filePath))
-                return ServiceResult<ExportArtifact>.BadRequest("Export file was not created.");
-            var bytes = await File.ReadAllBytesAsync(filePath, ct);
+            var timestamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
+
+            // Annotations only: return the bare COCO JSON (current behaviour).
+            if (!request.IncludeImages)
+            {
+                var fileName = $"export_coco_{timestamp}.json";
+                var filePath = Path.Combine(folder, fileName);
+                await _exportService.ExportCocoAsync(documentId, filePath, imagesDirectory: null, ct);
+                if (!File.Exists(filePath))
+                    return ServiceResult<ExportArtifact>.BadRequest("Export file was not created.");
+                var bytes = await File.ReadAllBytesAsync(filePath, ct);
+                return ServiceResult<ExportArtifact>.Success(
+                    new ExportArtifact(bytes, "application/json", fileName));
+            }
+
+            // With images: write the JSON + images/ folder, then zip it.
+            var cocoFolder = Path.Combine(folder, "coco");
+            var imagesFolder = Path.Combine(cocoFolder, "images");
+            Directory.CreateDirectory(cocoFolder);
+            var jsonPath = Path.Combine(cocoFolder, "annotations.coco.json");
+            await _exportService.ExportCocoAsync(documentId, jsonPath, imagesFolder, ct);
+
+            if (!File.Exists(jsonPath))
+                return ServiceResult<ExportArtifact>.BadRequest("Export files were not created.");
+
+            var zipName = $"export_coco_{timestamp}.zip";
+            var zipPath = Path.Combine(folder, zipName);
+            ZipFile.CreateFromDirectory(cocoFolder, zipPath);
+            var zipBytes = await File.ReadAllBytesAsync(zipPath, ct);
             return ServiceResult<ExportArtifact>.Success(
-                new ExportArtifact(bytes, "application/json", fileName));
+                new ExportArtifact(zipBytes, "application/zip", zipName));
         }, "COCO");
 
     public Task<ServiceResult<ExportArtifact>> ExportYoloAsync(

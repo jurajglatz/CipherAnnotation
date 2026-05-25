@@ -144,7 +144,7 @@ public class SymbolServiceTests
         SeedSymbol(ctx, owner.Id, "mine");
         SeedSymbol(ctx, other.Id, "theirs");
 
-        var result = await svc.ListAsync(owner.Id, "mine", null, 50, 0);
+        var result = await svc.ListAsync(owner.Id, "mine", null, null, false, 50, 0);
 
         result.IsSuccess.Should().BeTrue();
         result.Value!.Should().HaveCount(1).And.OnlyContain(s => s.Content == "mine");
@@ -161,7 +161,7 @@ public class SymbolServiceTests
         SeedSymbol(ctx, owner.Id, "unused");
         SeedSymbolAnnotation(ctx, page, cap, symUsed.Id);
 
-        var result = await svc.ListAsync(viewer.Id, "public", null, 50, 0);
+        var result = await svc.ListAsync(viewer.Id, "public", null, null, false, 50, 0);
 
         result.IsSuccess.Should().BeTrue();
         result.Value!.Should().HaveCount(1).And.OnlyContain(s => s.Content == "used");
@@ -223,8 +223,13 @@ public class SymbolServiceTests
 
     private sealed class NullVlmSuggestionService : IVlmSuggestionService
     {
-        public Task<string?> SuggestSymbolContentAsync(byte[] imageBytes, string mimeType, CancellationToken ct = default)
-            => Task.FromResult<string?>(null);
+        public Task<IReadOnlyList<string?>> SuggestSymbolContentsAsync(
+            IReadOnlyList<byte[]> images, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<string?>>(images.Select(_ => (string?)null).ToList());
+
+        public Task<IReadOnlyList<string?>> SuggestSymbolContentsAsync(
+            IReadOnlyList<byte[]> images, IProgress<int>? progress, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<string?>>(images.Select(_ => (string?)null).ToList());
     }
 
     private sealed class NullAppSettingsService : IAppSettingsService

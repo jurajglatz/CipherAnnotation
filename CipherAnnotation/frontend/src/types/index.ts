@@ -243,6 +243,7 @@ export interface ExportRequest {
   trainTestSplit: number;
   variant?: CocoVariant | YoloVariant | TfRecordVariant;
   captionIds?: string[];
+  includeImages?: boolean;
 }
 
 // ============================================================================

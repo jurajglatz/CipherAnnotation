@@ -10,9 +10,14 @@ public interface IExportService
     /// </summary>
     /// <param name="documentId">The unique identifier of the document to export.</param>
     /// <param name="outputPath">The file path for the output COCO JSON file.</param>
+    /// <param name="imagesDirectory">
+    /// Optional directory into which the page image files are written. When null,
+    /// only the JSON is produced. When provided, each page's image is written
+    /// using the same file name referenced by the JSON (<c>page_{N:D4}.{ext}</c>).
+    /// </param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>A task representing the asynchronous operation.</returns>
-    Task ExportCocoAsync(Guid documentId, string outputPath, CancellationToken cancellationToken = default);
+    Task ExportCocoAsync(Guid documentId, string outputPath, string? imagesDirectory = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Exports document annotations to YOLO format asynchronously.
