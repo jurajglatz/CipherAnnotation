@@ -25,4 +25,12 @@ public record ExportRequest
     /// </summary>
     [Range(0.0, 1.0)]
     public float TrainTestSplit { get; init; } = 0.8f;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether to bundle the actual image files
+    /// alongside the annotations. Only affects the COCO format (when true, the
+    /// COCO export is returned as a ZIP containing the JSON and an images folder).
+    /// YOLO and TFRecord always include images regardless of this value.
+    /// </summary>
+    public bool IncludeImages { get; init; } = false;
 }

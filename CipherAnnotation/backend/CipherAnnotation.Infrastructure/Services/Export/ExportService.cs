@@ -150,7 +150,7 @@ public class ExportService : IExportService
     // COCO export
     // ------------------------------------------------------------------
 
-    public async Task ExportCocoAsync(Guid documentId, string outputPath, CancellationToken cancellationToken = default)
+    public async Task ExportCocoAsync(Guid documentId, string outputPath, string? imagesDirectory = null, CancellationToken cancellationToken = default)
     {
         var (document, pages, categories) = await LoadAsync(documentId, cancellationToken);
 
@@ -205,11 +205,35 @@ public class ExportService : IExportService
         };
 
         var options = new JsonSerializerOptions { WriteIndented = true };
-        await using var fs = File.Create(outputPath);
-        await JsonSerializer.SerializeAsync(fs, coco, options, cancellationToken);
+        await using (var fs = File.Create(outputPath))
+        {
+            await JsonSerializer.SerializeAsync(fs, coco, options, cancellationToken);
+        }
 
-        _logger.LogInformation("COCO export written to {Path} ({ImageCount} images, {AnnotationCount} annotations).",
-            outputPath, images.Count, annotations.Count);
+        // Optionally bundle the actual image files, matching the file names
+        // referenced in the JSON (page_{N:D4}.{ext}).
+        if (imagesDirectory != null)
+        {
+            Directory.CreateDirectory(imagesDirectory);
+            foreach (var page in pages)
+            {
+                var imageFileName = $"page_{page.PageNumber:D4}.{page.ImageExtension}";
+                var destImage = Path.Combine(imagesDirectory, imageFileName);
+                try
+                {
+                    var bytes = await LoadBlobBytesAsync(page.ImageBlobId, cancellationToken);
+                    if (bytes.Length > 0)
+                        await File.WriteAllBytesAsync(destImage, bytes, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not write image for page {PageId}", page.Id);
+                }
+            }
+        }
+
+        _logger.LogInformation("COCO export written to {Path} ({ImageCount} images, {AnnotationCount} annotations, bundledImages={Bundled}).",
+            outputPath, images.Count, annotations.Count, imagesDirectory != null);
     }
 
     // ------------------------------------------------------------------

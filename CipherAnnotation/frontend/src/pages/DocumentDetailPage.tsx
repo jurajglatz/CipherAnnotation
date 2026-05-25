@@ -62,6 +62,7 @@ export const DocumentDetailPage: React.FC = () => {
   const [yoloVariant, setYoloVariant] = useState<YoloVariant>('DETECTION');
   const [tfVariant, setTfVariant] = useState<TfRecordVariant>('DETECTION');
   const [trainTestSplit, setTrainTestSplit] = useState(80);
+  const [includeImages, setIncludeImages] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [captions, setCaptions] = useState<Caption[]>([]);
   const [selectedCaptionIds, setSelectedCaptionIds] = useState<Set<string>>(new Set());
@@ -290,6 +291,7 @@ export const DocumentDetailPage: React.FC = () => {
         trainTestSplit: trainTestSplit / 100, // UI uses 0–100, backend expects 0–1
         variant: currentVariant,
         captionIds: Array.from(selectedCaptionIds),
+        includeImages,
       };
 
       let blob: Blob;
@@ -297,7 +299,7 @@ export const DocumentDetailPage: React.FC = () => {
       switch (exportFormat) {
         case 'COCO':
           blob = await exportService.exportCoco(request);
-          extension = 'json';
+          extension = includeImages ? 'zip' : 'json';
           break;
         case 'YOLO':
           blob = await exportService.exportYolo(request);
@@ -761,6 +763,30 @@ export const DocumentDetailPage: React.FC = () => {
           </div>
 
           <div>
+            <label
+              className={`flex items-center gap-3 ${
+                exportFormat === 'COCO' ? 'cursor-pointer' : 'cursor-not-allowed'
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={exportFormat === 'COCO' ? includeImages : true}
+                disabled={exportFormat !== 'COCO'}
+                onChange={(e) => setIncludeImages(e.target.checked)}
+                className="w-4 h-4 accent-ink-900 disabled:opacity-60"
+              />
+              <span className="flex-1">
+                <span className="block text-sm text-ink-900 font-medium">Include image files</span>
+                <span className="block text-xs text-ink-900/50">
+                  {exportFormat === 'COCO'
+                    ? 'Bundle the page images alongside the annotations (exports a ZIP instead of a plain JSON).'
+                    : 'Images are always included for this format.'}
+                </span>
+              </span>
+            </label>
+          </div>
+
+          <div>
             <label className="block text-xs font-semibold tracking-wider uppercase text-sepia-700 mb-2">
               File Name
             </label>
@@ -776,7 +802,7 @@ export const DocumentDetailPage: React.FC = () => {
                 className="flex-1 px-3 py-2.5 bg-parchment-50 border border-sepia-600/30 text-ink-900 placeholder-sepia-600/50 rounded-l-md focus:outline-none focus:border-ink-900 focus:ring-1 focus:ring-ink-900 transition-colors font-mono text-sm"
               />
               <span className="inline-flex items-center px-3 bg-parchment-200 border border-l-0 border-sepia-600/30 rounded-r-md text-ink-900/60 font-mono text-sm">
-                .{exportFormat === 'COCO' ? 'json' : 'zip'}
+                .{exportFormat === 'COCO' && !includeImages ? 'json' : 'zip'}
               </span>
             </div>
             <p className="text-xs text-ink-900/50 mt-1">
