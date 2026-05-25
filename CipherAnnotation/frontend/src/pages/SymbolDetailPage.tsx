@@ -27,6 +27,8 @@ export const SymbolDetailPage: React.FC = () => {
   const [symbol, setSymbol] = useState<SymbolEntity | null>(null);
   const [occurrences, setOccurrences] = useState<SymbolOccurrence[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const OCCURRENCES_PAGE = 100;
   const [contentDraft, setContentDraft] = useState('');
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -45,7 +47,10 @@ export const SymbolDetailPage: React.FC = () => {
     if (!symbolId) return;
     let cancelled = false;
     setLoading(true);
-    Promise.all([symbolService.getById(symbolId), symbolService.getOccurrences(symbolId)])
+    Promise.all([
+      symbolService.getById(symbolId),
+      symbolService.getOccurrences(symbolId, OCCURRENCES_PAGE, 0),
+    ])
       .then(([s, occ]) => {
         if (cancelled) return;
         setSymbol(s);
@@ -92,6 +97,25 @@ export const SymbolDetailPage: React.FC = () => {
       toast.error(e instanceof Error ? e.message : 'Update failed');
     } finally {
       setSavingImage(false);
+    }
+  }
+
+  async function loadMoreOccurrences() {
+    if (!symbolId || loadingMore) return;
+    try {
+      setLoadingMore(true);
+      const next = await symbolService.getOccurrences(
+        symbolId,
+        OCCURRENCES_PAGE,
+        occurrences.length,
+      );
+      // De-dupe defensively in case a concurrent change shifts the window.
+      const seen = new Set(occurrences.map((o) => o.annotationId));
+      setOccurrences((prev) => [...prev, ...next.filter((o) => !seen.has(o.annotationId))]);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to load more');
+    } finally {
+      setLoadingMore(false);
     }
   }
 
@@ -201,9 +225,15 @@ export const SymbolDetailPage: React.FC = () => {
 
       <section data-tour="symbol-occurrences">
         <h2 className="font-serif text-xl text-ink-900 mb-3">Occurrences</h2>
-        {occurrences.length === 0 ? (
+        {occurrences.length === 0 && (
           <p className="text-sm text-sepia-700 italic">No annotations reference this symbol yet.</p>
-        ) : (
+        )}
+        {occurrences.length > 0 && occurrences.length < symbol.referenceCount && (
+          <p className="text-xs text-sepia-700/80 italic mb-2">
+            Showing {occurrences.length} of {symbol.referenceCount}.
+          </p>
+        )}
+        {occurrences.length > 0 && (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
             {occurrences.map((o) => (
               <Link
@@ -228,6 +258,18 @@ export const SymbolDetailPage: React.FC = () => {
                 </div>
               </Link>
             ))}
+          </div>
+        )}
+        {occurrences.length > 0 && occurrences.length < symbol.referenceCount && (
+          <div className="mt-4 flex justify-center">
+            <button
+              type="button"
+              onClick={loadMoreOccurrences}
+              disabled={loadingMore}
+              className="px-4 py-2 text-sm border border-sepia-600/30 bg-parchment-50 text-ink-900 rounded hover:border-ink-900 disabled:opacity-50"
+            >
+              {loadingMore ? 'Loading…' : 'Load more'}
+            </button>
           </div>
         )}
       </section>
