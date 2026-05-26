@@ -37,6 +37,9 @@ public class SymbolService : ISymbolService
         if (currentUserId == Guid.Empty)
             return ServiceResult<SymbolDto>.Unauthorized();
 
+        if (string.IsNullOrWhiteSpace(content) && (pngBytes is null || pngBytes.Length == 0))
+            return ServiceResult<SymbolDto>.BadRequest("A symbol must have content or an image.");
+
         Guid? blobId = null;
         if (pngBytes is not null && pngBytes.Length > 0)
             blobId = await _fileStorage.SaveAsync(pngBytes, fileName, "image/png", ct);
