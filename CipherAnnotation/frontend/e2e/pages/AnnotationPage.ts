@@ -65,4 +65,115 @@ export class AnnotationPage {
     await this.page.mouse.click(x1, y1);
     await this.page.mouse.click(x2, y2);
   }
+
+  // ── CaptionsPanel helpers ──────────────────────────────────────────────────
+
+  /**
+   * Add a new caption via the CaptionsPanel inline-add flow.
+   * Clicks "Add caption", types the name into the "Label…" input, then
+   * commits by pressing Enter. Waits for the caption row to appear.
+   */
+  async addCaption(name: string) {
+    await this.page.getByTitle('Add caption').click();
+    const input = this.page.getByPlaceholder('Label…');
+    await input.waitFor({ state: 'visible' });
+    await input.fill(name);
+    await input.press('Enter');
+    // Wait for the new row to be visible in the captions list
+    await expect(this.page.getByText(name).first()).toBeVisible({ timeout: 10_000 });
+  }
+
+  /**
+   * Rename the first caption whose displayed name matches `oldName`.
+   * Hovers the row to reveal the Rename button (opacity-0 group-hover:opacity-100),
+   * clicks it, clears the input, types the new name, and presses Enter.
+   */
+  async renameCaption(oldName: string, newName: string) {
+    // Scope to the CaptionsPanel section (anchored by the unique "Add caption" button);
+    // otherwise an AnnotationTreePanel <li> grouped by the same caption name wins .first().
+    const captionsSection = this.page
+      .getByTitle('Add caption')
+      .locator('xpath=ancestor::div[contains(@class,"border-b")][1]');
+    const row = captionsSection.locator('li').filter({ hasText: oldName }).first();
+    await row.hover();
+    // Rename button has opacity-0 group-hover:opacity-100 — Playwright's visibility
+    // check still sees opacity:0 even after hover, so force the click.
+    await row.getByTitle('Rename').click({ force: true });
+    // After clicking Rename, the <li> swaps the name text for an <input>, so the
+    // `filter({ hasText: oldName })` locator above no longer matches that row.
+    // Re-acquire the input directly within the CaptionsPanel section — only one
+    // renaming input is ever active at a time.
+    const input = captionsSection.locator('li input[type="text"]').first();
+    await input.waitFor({ state: 'visible' });
+    await input.fill(newName);
+    await input.press('Enter');
+    await expect(this.page.getByText(newName).first()).toBeVisible({ timeout: 10_000 });
+  }
+
+  /**
+   * Delete the caption with the given name. Hovers the row to reveal the
+   * Delete button (title="Delete"), clicks it. Asserts the row disappears.
+   * Note: caption must have usageCount === 0 or the backend will reject it.
+   */
+  async deleteCaption(name: string) {
+    // Same scoping reason as renameCaption — keep this inside the CaptionsPanel section.
+    const captionsSection = this.page
+      .getByTitle('Add caption')
+      .locator('xpath=ancestor::div[contains(@class,"border-b")][1]');
+    const row = captionsSection.locator('li').filter({ hasText: name }).first();
+    await row.hover();
+    // Same opacity-0 group-hover trick as Rename — force past Playwright's visibility check.
+    await row.getByTitle('Delete').click({ force: true });
+    await expect(row).toBeHidden({ timeout: 10_000 });
+  }
+
+  // ── PropertiesPanel helpers ────────────────────────────────────────────────
+
+  /**
+   * Assign a caption to the currently selected annotation via the Caption
+   * <select> in PropertiesPanel. Uses selectOption({ label }) to match by
+   * option text.
+   */
+  async assignCaption(captionName: string) {
+    // PropertiesPanel renders Caption then Type selects inside a <fieldset>.
+    // The Caption select is the first <select> inside the fieldset.
+    const fieldset = this.page.locator('fieldset').first();
+    await fieldset.locator('select').first().selectOption({ label: captionName });
+  }
+
+  /**
+   * Set the annotation Type via the Type <select> in PropertiesPanel.
+   * Pass the visible option label: "Text", "Cipher", or "Symbol".
+   */
+  async setType(label: string) {
+    // The Type select is the second <select> inside PropertiesPanel's fieldset.
+    // It has exactly three options: Text, Cipher, Symbol.
+    const fieldset = this.page.locator('fieldset').first();
+    await fieldset.locator('select').nth(1).selectOption({ label });
+  }
+
+  /**
+   * Delete the currently selected annotation using the Delete button in
+   * PropertiesPanel (bottom of the right sidebar).
+   * The PropertiesPanel Delete button has a border-cipher-red class that
+   * distinguishes it from the opacity-0 hover-only buttons in the tree panel.
+   * It is a full-width button — target it by its unique class fragment.
+   */
+  async deleteSelectedAnnotation() {
+    // PropertiesPanel Delete button: full-width, always visible when annotation selected.
+    // It has class "w-full flex items-center justify-center gap-2 border border-cipher-red/40"
+    // — no title attr. Use getByText scoped to a button with w-full.
+    await this.page.locator('button.w-full').filter({ hasText: 'Delete' }).click();
+  }
+
+  /**
+   * Select the first annotation row in the AnnotationTreePanel by clicking it.
+   * Works after a rectangle has been drawn. Expands the group if collapsed.
+   */
+  async selectFirstAnnotation() {
+    const treePanel = this.page.locator('[data-tour="annotation-tree"]');
+    // Each annotation sits inside an <li> with the class group. Click the first one.
+    const firstRow = treePanel.locator('li div.group').first();
+    await firstRow.click();
+  }
 }
