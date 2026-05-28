@@ -67,8 +67,7 @@ test('document lifecycle: edit, visibility, add page, delete page, delete doc', 
 
   // ── 4. Delete the second page ─────────────────────────────────────────────
   // Two "Delete page" buttons exist (one per thumb); .nth(1) is the second.
-  // The button has opacity-0 group-hover:opacity-100, so force past the visibility check.
-  await page.getByLabel('Delete page').nth(1).click({ force: true });
+  await page.getByLabel('Delete page').nth(1).click();
   // ConfirmDialog "Delete Page" opens; confirm via the dialog's "Delete" button.
   await expect(page.getByRole('heading', { name: 'Delete Page' })).toBeVisible();
   await page
