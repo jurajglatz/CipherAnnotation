@@ -191,7 +191,7 @@ export const PageThumbnail: React.FC<PageThumbnailProps> = ({
             }}
             title="Delete page"
             aria-label="Delete page"
-            className="absolute top-2 right-2 p-1.5 bg-parchment-50/90 hover:bg-cipher-red text-cipher-red hover:text-parchment-50 rounded-md shadow-sm opacity-0 group-hover:opacity-100 transition-all z-10"
+            className="absolute top-2 right-2 p-1.5 bg-parchment-50/90 hover:bg-cipher-red text-cipher-red hover:text-parchment-50 rounded-md shadow-sm opacity-60 group-hover:opacity-100 transition-all z-10"
           >
             <Trash2 className="w-4 h-4" />
           </button>
