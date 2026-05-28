@@ -2,3 +2,7 @@
 .env
 .env.*
 !.env.example
+
+# .NET test + coverage outputs
+backend/**/TestResults/
+backend/**/coverage-report/
