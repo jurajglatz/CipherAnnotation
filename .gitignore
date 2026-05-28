@@ -51,6 +51,12 @@ CipherAnnotation/train_grid/
 *.pt
 CipherAnnotation/backend/CipherAnnotation.API/ml_models/
 
+# ---------- Test coverage ----------
+TestResults/
+CoverageReport/
+coverage/
+*.cobertura.xml
+
 # ---------- App runtime ----------
 uploads/
 CipherAnnotation/backend/CipherAnnotation.API/uploads/
