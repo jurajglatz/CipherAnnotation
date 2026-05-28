@@ -1,5 +1,6 @@
 # Playwright
 /e2e/.auth/
+/e2e/images/
 /test-results/
 /playwright-report/
 /blob-report/
