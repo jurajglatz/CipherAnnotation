@@ -89,22 +89,15 @@ export class AnnotationPage {
    * clicks it, clears the input, types the new name, and presses Enter.
    */
   async renameCaption(oldName: string, newName: string) {
-    // Scope to the CaptionsPanel section (anchored by the unique "Add caption" button);
-    // otherwise an AnnotationTreePanel <li> grouped by the same caption name wins .first().
-    const captionsSection = this.page
-      .getByTitle('Add caption')
-      .locator('xpath=ancestor::div[contains(@class,"border-b")][1]');
-    const row = captionsSection.locator('li').filter({ hasText: oldName }).first();
+    // Scope to the CaptionsPanel — the AnnotationTreePanel also groups by caption
+    // and renders a <li> with the same text, so an unscoped locator hits the wrong one.
+    const captionsPanel = this.page.locator('[data-testid="captions-panel"]');
+    const row = captionsPanel.locator('li').filter({ hasText: oldName }).first();
     await row.hover();
-    // Rename button has opacity-0 group-hover:opacity-100 — Playwright's visibility
-    // check still sees opacity:0 even after hover, so force the click.
-    await row.getByTitle('Rename').click({ force: true });
-    // After clicking Rename, the <li> swaps the name text for an <input>, so the
-    // `filter({ hasText: oldName })` locator above no longer matches that row.
-    // Re-acquire the input directly within the CaptionsPanel section — only one
-    // renaming input is ever active at a time.
-    const input = captionsSection.locator('li input[type="text"]').first();
-    await input.waitFor({ state: 'visible' });
+    await row.getByTitle('Rename').click();
+    // After Rename, the row's name text is swapped for an <input>, so re-acquire
+    // it within the panel — only one renaming input is ever active at a time.
+    const input = captionsPanel.locator('li input[type="text"]').first();
     await input.fill(newName);
     await input.press('Enter');
     await expect(this.page.getByText(newName).first()).toBeVisible({ timeout: 10_000 });
@@ -116,14 +109,10 @@ export class AnnotationPage {
    * Note: caption must have usageCount === 0 or the backend will reject it.
    */
   async deleteCaption(name: string) {
-    // Same scoping reason as renameCaption — keep this inside the CaptionsPanel section.
-    const captionsSection = this.page
-      .getByTitle('Add caption')
-      .locator('xpath=ancestor::div[contains(@class,"border-b")][1]');
-    const row = captionsSection.locator('li').filter({ hasText: name }).first();
+    const captionsPanel = this.page.locator('[data-testid="captions-panel"]');
+    const row = captionsPanel.locator('li').filter({ hasText: name }).first();
     await row.hover();
-    // Same opacity-0 group-hover trick as Rename — force past Playwright's visibility check.
-    await row.getByTitle('Delete').click({ force: true });
+    await row.getByTitle('Delete').click();
     await expect(row).toBeHidden({ timeout: 10_000 });
   }
 

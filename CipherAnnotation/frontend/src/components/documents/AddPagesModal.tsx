@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { X, Upload, Plus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { pageService } from '@/services';
@@ -40,21 +40,31 @@ export const AddPagesModal: React.FC<AddPagesModalProps> = ({
       return true;
     });
 
-    validFiles.forEach((file) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setFiles((prev) => [
-          ...prev,
-          {
-            id: `${Date.now()}-${Math.random()}`,
-            file,
-            preview: reader.result as string,
-          },
-        ]);
+    // Synchronous object URLs — the `files` state updates in the same tick, so
+    // the Upload button enables immediately and there is no race for callers
+    // (UI or E2E) that flip the trigger right after the change event fires.
+    if (validFiles.length === 0) return;
+    const next: SelectedFile[] = validFiles.map((file) => {
+      const preview = URL.createObjectURL(file);
+      objectUrlsRef.current.push(preview);
+      return {
+        id: `${Date.now()}-${Math.random()}`,
+        file,
+        preview,
       };
-      reader.readAsDataURL(file);
     });
+    setFiles((prev) => [...prev, ...next]);
   };
+
+  // Track every object URL we hand out so we can revoke them on unmount —
+  // a state closure inside useEffect would only see the initial files array.
+  const objectUrlsRef = useRef<string[]>([]);
+  useEffect(() => {
+    return () => {
+      objectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+      objectUrlsRef.current = [];
+    };
+  }, []);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files) {
