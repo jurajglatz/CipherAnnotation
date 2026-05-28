@@ -128,7 +128,7 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div data-testid="captions-panel" className="flex flex-col h-full">
       {/* Captions section */}
       <div className="border-b border-sepia-600/20">
         <div className="flex items-center gap-1 p-4">
@@ -253,7 +253,7 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
                                 onToggleCaptionVisibility(c.id);
                               }}
                               className={`p-1 hover:bg-parchment-200 rounded ${
-                                isHidden ? 'opacity-100 text-ink-900/60' : 'opacity-0 group-hover:opacity-100'
+                                isHidden ? 'opacity-100 text-ink-900/60' : 'opacity-60 group-hover:opacity-100'
                               }`}
                               title={isHidden ? 'Show annotations' : 'Hide annotations'}
                             >
@@ -269,7 +269,7 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
                                   setRenamingId(c.id);
                                   setRenameDraft(c.name);
                                 }}
-                                className="p-1 hover:bg-parchment-200 rounded opacity-0 group-hover:opacity-100"
+                                className="p-1 hover:bg-parchment-200 rounded opacity-60 group-hover:opacity-100"
                                 title="Rename"
                               >
                                 <Pencil className="w-4 h-4" />
@@ -278,7 +278,7 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
                                 type="button"
                                 onClick={(e) => { e.stopPropagation(); handleDelete(c); }}
                                 disabled={c.usageCount > 0}
-                                className={`p-1 rounded opacity-0 group-hover:opacity-100 ${
+                                className={`p-1 rounded opacity-60 group-hover:opacity-100 ${
                                   c.usageCount > 0
                                     ? 'cursor-not-allowed text-gray-400'
                                     : 'hover:bg-cipher-red/10 text-cipher-red'

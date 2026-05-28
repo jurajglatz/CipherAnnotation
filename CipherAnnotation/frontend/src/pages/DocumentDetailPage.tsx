@@ -415,6 +415,7 @@ export const DocumentDetailPage: React.FC = () => {
                   </button>
                   <button
                     onClick={() => setIsDeleteOpen(true)}
+                    aria-label="Delete document"
                     className="flex items-center gap-2 px-4 py-2 bg-transparent border-2 border-cipher-red/30 hover:border-cipher-red text-cipher-red hover:bg-cipher-red/5 rounded-md transition-colors font-semibold"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -577,6 +578,7 @@ export const DocumentDetailPage: React.FC = () => {
               {paginatedPages.map((page, index) => (
                 <div
                   key={page.id}
+                  data-testid="page-thumb"
                   data-tour={index === 0 ? 'page-thumb' : undefined}
                   onClick={() =>
                     navigate(`/documents/${documentId}/annotate/${page.id}`)

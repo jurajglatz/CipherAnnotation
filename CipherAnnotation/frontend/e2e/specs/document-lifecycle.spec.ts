@@ -38,11 +38,9 @@ test('document lifecycle: edit, visibility, add page, delete page, delete doc', 
   // ── 3. Add a page via AddPagesModal ───────────────────────────────────────
   await page.locator('[data-tour="add-pages"]').click();
   // The modal's file input is hidden; setInputFiles works regardless of visibility.
+  // The modal stores previews via URL.createObjectURL synchronously, so the
+  // Upload button enables in the same tick — no readiness wait needed.
   await page.locator('input[type="file"]').setInputFiles(SAMPLE_PAGE);
-  // FileReader.readAsDataURL is async — the modal's files state is only updated
-  // when reader.onloadend fires. Wait for the "Selected files (N)" indicator so
-  // the Upload button is actually enabled (otherwise handleSubmit early-returns).
-  await expect(page.getByText(/^Selected files \(\d+\)/)).toBeVisible({ timeout: 10_000 });
   // Submit button label is "Upload N Page(s)"; match the prefix. Also wait for
   // the POST so we can fail loudly if the backend rejects it.
   const [addPagesRes] = await Promise.all([
@@ -82,8 +80,8 @@ test('document lifecycle: edit, visibility, add page, delete page, delete doc', 
   await expect(page.getByRole('img', { name: 'Page 1' })).toBeVisible();
 
   // ── 5. Delete the document ───────────────────────────────────────────────
-  // Match only the document-level "Delete" — "Delete page" buttons also exist per thumb.
-  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  // Distinct aria-label so the locator can't collide with "Delete page" buttons.
+  await page.getByRole('button', { name: 'Delete document' }).click();
   await expect(page.getByRole('heading', { name: 'Delete Document' })).toBeVisible();
   await page
     .getByRole('dialog', { name: 'Delete Document' })
