@@ -12,7 +12,18 @@ export class DocumentsPage {
     await this.page.getByRole('button', { name: 'Create Document' }).click();
   }
 
+  /**
+   * Filter the documents list to `title` via the search box. The list is
+   * paginated (12/page) and sorted newest-first, so on a shared/accumulating
+   * test DB an older document can be pushed off page 1. Searching narrows the
+   * list so the target is rendered regardless of how many documents exist.
+   */
+  async search(title: string) {
+    await this.page.getByPlaceholder(/Search documents/i).fill(title);
+  }
+
   async openDocument(title: string) {
+    await this.search(title);
     // DocumentCard renders an h3 with the title and a "View" button.
     // Locate the heading, then find the nearest "View" button sibling via the shared card container.
     const heading = this.page.getByRole('heading', { name: title, exact: true }).first();
@@ -22,6 +33,7 @@ export class DocumentsPage {
   }
 
   async expectVisible(title: string) {
+    await this.search(title);
     await expect(this.page.getByRole('heading', { name: title }).first()).toBeVisible();
   }
 }
