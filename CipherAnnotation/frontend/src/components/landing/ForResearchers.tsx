@@ -27,20 +27,22 @@ export const ForResearchers: React.FC = () => {
             </p>
           </div>
 
-          <figure className="relative pl-8 border-l-2 border-sepia-700">
-            <span aria-hidden="true" className="absolute -left-3 -top-4 font-serif text-7xl text-sepia-700/30 leading-none select-none">
-              &ldquo;
-            </span>
-            <p className="font-mono text-xs font-bold tracking-widest uppercase text-sepia-700 mb-4">
-              {t.research.quoteTitle}
+          <div className="rounded-xl border border-sepia-600/30 bg-parchment-50 p-8 shadow-sm">
+            <p className="font-mono text-xs font-bold tracking-widest uppercase text-sepia-700 mb-6">
+              {t.research.statLabel}
             </p>
-            <blockquote className="font-serif text-2xl sm:text-[1.7rem] text-ink-900 leading-relaxed italic">
-              {t.research.quote}
-            </blockquote>
-            <figcaption className="mt-6 text-sm text-sepia-700 font-medium">
-              {t.research.quoteAuthor}
-            </figcaption>
-          </figure>
+            <div className="flex items-baseline gap-3">
+              <span className="font-serif text-7xl sm:text-8xl font-semibold text-ink-900 leading-none">
+                {t.research.statValue}
+              </span>
+              <span className="font-serif text-2xl text-sepia-700 italic">
+                {t.research.statUnit}
+              </span>
+            </div>
+            <p className="mt-6 text-ink-900/75 text-lg leading-relaxed">
+              {t.research.statBody}
+            </p>
+          </div>
         </div>
       </div>
     </section>

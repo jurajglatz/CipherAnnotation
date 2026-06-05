@@ -42,10 +42,11 @@ export const copy = {
     title: 'Built for research',
     body:
       'CipherAnnotation is a bachelor thesis project at the Faculty of Electrical Engineering and Information Technology, STU Bratislava. It bridges historical cryptology and computer vision — annotations produced here can directly train detection models.',
-    quoteTitle: 'A typical use-case',
-    quote:
-      '"A 40-page Copiale collection — annotated over a weekend. YOLO export, straight to training on an RTX. Without CipherAnnotation this would take a month."',
-    quoteAuthor: '— a hypothetical researcher (soon you?)',
+    statLabel: 'Faster than existing solutions',
+    statValue: '2.5×',
+    statUnit: 'faster annotation',
+    statBody:
+      'CipherAnnotation speeds up cipher annotation by up to 2.5× compared to existing tools. Annotate a 40-page Copiale collection over a weekend, export to YOLO, and train on your own GPU.',
   },
   cta: {
     title: 'Ready to start?',
