@@ -22,7 +22,7 @@ export const CtaBanner: React.FC = () => {
         <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
           <Link
             to="/register"
-            className="group inline-flex items-center justify-center gap-2 px-8 py-4 bg-parchment-50 text-ink-900 hover:bg-primary-500 hover:text-parchment-50 font-semibold rounded-md shadow-xl transition-all hover:-translate-y-0.5"
+            className="group inline-flex items-center justify-center gap-2 px-8 py-4 bg-parchment-50 text-ink-900 hover:bg-primary-700 hover:text-parchment-50 font-semibold rounded-md shadow-xl transition-all hover:-translate-y-0.5"
           >
             {t.cta.primary}
             <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />

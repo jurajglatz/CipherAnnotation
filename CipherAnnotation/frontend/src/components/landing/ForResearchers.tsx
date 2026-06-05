@@ -28,7 +28,7 @@ export const ForResearchers: React.FC = () => {
           </div>
 
           <figure className="relative pl-8 border-l-2 border-sepia-700">
-            <span className="absolute -left-3 -top-4 font-serif text-7xl text-sepia-700/30 leading-none select-none">
+            <span aria-hidden="true" className="absolute -left-3 -top-4 font-serif text-7xl text-sepia-700/30 leading-none select-none">
               &ldquo;
             </span>
             <p className="font-mono text-xs font-bold tracking-widest uppercase text-sepia-700 mb-4">
