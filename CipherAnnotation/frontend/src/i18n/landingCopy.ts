@@ -41,7 +41,7 @@ export const copy = {
   research: {
     title: 'Built for research',
     body:
-      'CipherAnnotation started as a bachelor thesis at the Faculty of Electrical Engineering and Information Technology, STU Bratislava. It bridges historical cryptology and computer vision — annotations produced here can directly train detection models.',
+      'CipherAnnotation is a bachelor thesis project at the Faculty of Electrical Engineering and Information Technology, STU Bratislava. It bridges historical cryptology and computer vision — annotations produced here can directly train detection models.',
     quoteTitle: 'A typical use-case',
     quote:
       '"A 40-page Copiale collection — annotated over a weekend. YOLO export, straight to training on an RTX. Without CipherAnnotation this would take a month."',
