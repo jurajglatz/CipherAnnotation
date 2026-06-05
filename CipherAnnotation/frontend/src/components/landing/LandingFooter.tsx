@@ -23,7 +23,7 @@ export const LandingFooter: React.FC = () => {
 
           <div className="flex flex-wrap gap-6 items-center">
             <a
-              href="https://github.com"
+              href="https://github.com/jurajglatz/CipherAnnotation"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-2 text-sm text-ink-900/70 hover:text-ink-900 transition-colors"

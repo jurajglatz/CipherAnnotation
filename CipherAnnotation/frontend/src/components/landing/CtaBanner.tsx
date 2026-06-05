@@ -2,9 +2,11 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, Github } from 'lucide-react';
 import { copy } from '@/i18n/landingCopy';
+import { useAuth } from '@/hooks';
 
 export const CtaBanner: React.FC = () => {
   const t = copy;
+  const { isAuthenticated } = useAuth();
 
   return (
     <section className="relative bg-ink-900 overflow-hidden">
@@ -21,14 +23,14 @@ export const CtaBanner: React.FC = () => {
 
         <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
           <Link
-            to="/register"
+            to={isAuthenticated ? '/documents' : '/register'}
             className="group inline-flex items-center justify-center gap-2 px-8 py-4 bg-parchment-50 text-ink-900 hover:bg-primary-700 hover:text-parchment-50 font-semibold rounded-md shadow-xl transition-all hover:-translate-y-0.5"
           >
-            {t.cta.primary}
+            {isAuthenticated ? 'Go to app' : t.cta.primary}
             <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
           </Link>
           <a
-            href="https://github.com"
+            href="https://github.com/jurajglatz/CipherAnnotation"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center justify-center gap-2 px-8 py-4 bg-transparent border-2 border-parchment-50/30 hover:border-parchment-50 text-parchment-50 font-semibold rounded-md transition-colors"

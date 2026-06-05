@@ -100,7 +100,7 @@ export const AnnotationCarousel: React.FC<AnnotationCarouselProps> = ({
             {active.filename}
           </span>
         </div>
-        <div className="relative aspect-[4/3] bg-parchment-dark">
+        <div className="relative aspect-[1857/1062] bg-parchment-dark">
           {active.src ? (
             <img
               src={active.src}
