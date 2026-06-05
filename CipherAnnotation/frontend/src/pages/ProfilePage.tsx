@@ -4,10 +4,13 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { User as UserIcon, Mail, Calendar, Shield, Sparkles } from 'lucide-react';
+import { User as UserIcon, Mail, Calendar, Shield, Sparkles, Users } from 'lucide-react';
 import { useAuth } from '@/hooks';
 import { useTour } from '@/hooks/useTour';
 import settingsService, { SETTING_KEYS } from '@/services/settingsService';
+import userService from '@/services/userService';
+import { Pagination } from '@/components/shared/Pagination';
+import type { User, UserRole } from '@/types';
 
 export const ProfilePage: React.FC = () => {
   const { user } = useAuth();
@@ -17,6 +20,57 @@ export const ProfilePage: React.FC = () => {
   const [autoContentEnabled, setAutoContentEnabled] = useState(false);
   const [adminLoading, setAdminLoading] = useState(false);
   const [adminError, setAdminError] = useState<string | null>(null);
+
+  const PAGE_SIZE = 10;
+  const [users, setUsers] = useState<User[]>([]);
+  const [userTotal, setUserTotal] = useState(0);
+  const [userPage, setUserPage] = useState(1);
+  const [userQuery, setUserQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [usersError, setUsersError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      setDebouncedQuery(userQuery);
+      setUserPage(1);
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [userQuery]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    const controller = new AbortController();
+    setUsersLoading(true);
+    setUsersError(null);
+    userService
+      .listAll(debouncedQuery, userPage, PAGE_SIZE, controller.signal)
+      .then((res) => {
+        setUsers(res.data);
+        setUserTotal(res.total);
+      })
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        setUsersError('Failed to load users');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setUsersLoading(false);
+      });
+    return () => controller.abort();
+  }, [isAdmin, debouncedQuery, userPage]);
+
+  const changeRole = async (target: User, role: UserRole) => {
+    if (target.role === role) return;
+    const previous = target.role;
+    setUsersError(null);
+    setUsers((prev) => prev.map((u) => (u.id === target.id ? { ...u, role } : u)));
+    try {
+      await userService.updateRole(target.id, role);
+    } catch {
+      setUsers((prev) => prev.map((u) => (u.id === target.id ? { ...u, role: previous } : u)));
+      setUsersError('Failed to update role');
+    }
+  };
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -170,6 +224,84 @@ export const ProfilePage: React.FC = () => {
                   <p className="mt-2 text-sm text-red-700">{adminError}</p>
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isAdmin && (
+        <div className="mt-8 bg-parchment-50/80 backdrop-blur-sm border border-sepia-600/20 rounded-lg shadow-sm overflow-hidden">
+          <div className="p-7 border-b border-sepia-600/20">
+            <h2 className="font-serif text-2xl font-semibold text-ink-900 leading-tight">
+              User <em className="italic font-normal text-sepia-700">management</em>
+            </h2>
+            <p className="mt-1 text-sm text-ink-900/60">
+              Promote or demote users. You cannot change your own role.
+            </p>
+          </div>
+
+          <div className="p-7">
+            <div className="flex items-center gap-3 mb-5">
+              <div className="w-10 h-10 rounded-full bg-ink-900/5 border border-sepia-600/20 flex items-center justify-center shrink-0">
+                <Users className="w-5 h-5 text-sepia-700" />
+              </div>
+              <input
+                type="search"
+                value={userQuery}
+                onChange={(e) => setUserQuery(e.target.value)}
+                placeholder="Search by name or email"
+                className="flex-1 rounded-md border border-sepia-600/30 bg-parchment-50 px-3 py-2 text-ink-900 placeholder:text-ink-900/40 focus:outline-none focus:ring-2 focus:ring-sepia-600"
+              />
+            </div>
+
+            {usersError && <p className="mb-3 text-sm text-red-700">{usersError}</p>}
+
+            <ul className="divide-y divide-sepia-600/15">
+              {users.map((u) => {
+                const isSelf = u.id === user.id;
+                return (
+                  <li key={u.id} className="flex items-center gap-4 py-3">
+                    {u.avatarUri ? (
+                      <img src={u.avatarUri} alt={u.name} className="w-9 h-9 rounded-full object-cover border border-sepia-600/30" />
+                    ) : (
+                      <div className="w-9 h-9 rounded-full bg-ink-900 text-parchment-50 flex items-center justify-center">
+                        <span className="font-serif text-sm font-semibold">{u.name.charAt(0).toUpperCase()}</span>
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-ink-900 font-medium truncate">
+                        {u.name}
+                        {isSelf && <span className="ml-2 text-xs text-sepia-700">(you)</span>}
+                      </p>
+                      <p className="text-sm text-ink-900/60 truncate">{u.email}</p>
+                    </div>
+                    <select
+                      value={u.role}
+                      disabled={isSelf || usersLoading}
+                      onChange={(e) => changeRole(u, e.target.value as UserRole)}
+                      aria-label={`Role for ${u.name}`}
+                      className="rounded-md border border-sepia-600/30 bg-parchment-50 px-2 py-1 text-sm text-ink-900 focus:outline-none focus:ring-2 focus:ring-sepia-600 disabled:opacity-50"
+                    >
+                      <option value="User">User</option>
+                      <option value="Admin">Admin</option>
+                    </select>
+                  </li>
+                );
+              })}
+            </ul>
+
+            {!usersLoading && users.length === 0 && (
+              <p className="py-6 text-center text-sm text-ink-900/50 font-serif italic">No users found.</p>
+            )}
+
+            <div className="mt-5">
+              <Pagination
+                currentPage={userPage}
+                totalItems={userTotal}
+                pageSize={PAGE_SIZE}
+                onPageChange={setUserPage}
+                itemLabel="users"
+              />
             </div>
           </div>
         </div>
