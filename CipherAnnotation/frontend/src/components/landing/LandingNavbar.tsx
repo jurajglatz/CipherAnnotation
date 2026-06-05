@@ -44,7 +44,7 @@ export const LandingNavbar: React.FC = () => {
               <a
                 key={l.href}
                 href={l.href}
-                className="text-sm text-ink-900/70 hover:text-ink-900 font-medium transition-colors"
+                className="font-mono text-xs uppercase tracking-widest text-ink-900/70 hover:text-ink-900 transition-colors"
               >
                 {l.label}
               </a>
