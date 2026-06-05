@@ -230,7 +230,9 @@ export const ProfilePage: React.FC = () => {
       )}
 
       {isAdmin && (
-        <div className="mt-8 bg-parchment-50/80 backdrop-blur-sm border border-sepia-600/20 rounded-lg shadow-sm overflow-hidden">
+        // NOTE: no `backdrop-blur` here on purpose — a backdrop-filter ancestor
+        // suppresses the native <select> role dropdown's popup in Chromium.
+        <div className="mt-8 bg-parchment-50 border border-sepia-600/20 rounded-lg shadow-sm overflow-hidden">
           <div className="p-7 border-b border-sepia-600/20">
             <h2 className="font-serif text-2xl font-semibold text-ink-900 leading-tight">
               User <em className="italic font-normal text-sepia-700">management</em>
