@@ -8,14 +8,16 @@ export const CtaBanner: React.FC = () => {
 
   return (
     <section className="relative bg-ink-900 overflow-hidden">
-      <div className="absolute inset-0 cipher-symbols-bg opacity-[0.07] pointer-events-none" />
+      <div className="absolute inset-0 cipher-symbols-bg opacity-[0.06] pointer-events-none" />
       <div className="absolute inset-0 bg-gradient-to-br from-primary-900/20 via-transparent to-sepia-700/10 pointer-events-none" />
 
       <div className="relative max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-24 text-center">
         <h2 className="font-serif text-4xl sm:text-5xl md:text-6xl font-semibold text-parchment-50 leading-tight">
           {t.cta.title}
         </h2>
-        <p className="mt-6 text-lg text-parchment-50/70 max-w-xl mx-auto">{t.cta.subtitle}</p>
+        <p className="mt-6 text-lg text-parchment-50/70 max-w-xl mx-auto">
+          {t.cta.subtitle}
+        </p>
 
         <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
           <Link
