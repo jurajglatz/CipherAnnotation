@@ -2,9 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Key, Menu, X } from 'lucide-react';
 import { copy } from '@/i18n/landingCopy';
+import { useAuth } from '@/hooks';
 
 export const LandingNavbar: React.FC = () => {
   const t = copy;
+  const { isAuthenticated } = useAuth();
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
 
@@ -52,18 +54,29 @@ export const LandingNavbar: React.FC = () => {
           </div>
 
           <div className="hidden md:flex items-center gap-3">
-            <Link
-              to="/login"
-              className="px-4 py-2 text-sm font-medium text-ink-900 hover:text-primary-700 transition-colors"
-            >
-              {t.nav.login}
-            </Link>
-            <Link
-              to="/register"
-              className="px-4 py-2 text-sm font-semibold bg-ink-900 text-parchment-50 hover:bg-primary-700 rounded-md transition-colors shadow-sm"
-            >
-              {t.nav.signup}
-            </Link>
+            {isAuthenticated ? (
+              <Link
+                to="/documents"
+                className="px-4 py-2 text-sm font-semibold bg-ink-900 text-parchment-50 hover:bg-primary-700 rounded-md transition-colors shadow-sm"
+              >
+                Go to app
+              </Link>
+            ) : (
+              <>
+                <Link
+                  to="/login"
+                  className="px-4 py-2 text-sm font-medium text-ink-900 hover:text-primary-700 transition-colors"
+                >
+                  {t.nav.login}
+                </Link>
+                <Link
+                  to="/register"
+                  className="px-4 py-2 text-sm font-semibold bg-ink-900 text-parchment-50 hover:bg-primary-700 rounded-md transition-colors shadow-sm"
+                >
+                  {t.nav.signup}
+                </Link>
+              </>
+            )}
           </div>
 
           <button
@@ -88,18 +101,30 @@ export const LandingNavbar: React.FC = () => {
               </a>
             ))}
             <div className="flex gap-2 pt-3 border-t border-sepia-600/20 mt-2">
-              <Link
-                to="/login"
-                className="flex-1 px-3 py-2 text-sm text-center border border-ink-900/30 rounded-md"
-              >
-                {t.nav.login}
-              </Link>
-              <Link
-                to="/register"
-                className="flex-1 px-3 py-2 text-sm text-center bg-ink-900 text-parchment-50 rounded-md"
-              >
-                {t.nav.signup}
-              </Link>
+              {isAuthenticated ? (
+                <Link
+                  to="/documents"
+                  onClick={() => setOpen(false)}
+                  className="flex-1 px-3 py-2 text-sm text-center bg-ink-900 text-parchment-50 rounded-md"
+                >
+                  Go to app
+                </Link>
+              ) : (
+                <>
+                  <Link
+                    to="/login"
+                    className="flex-1 px-3 py-2 text-sm text-center border border-ink-900/30 rounded-md"
+                  >
+                    {t.nav.login}
+                  </Link>
+                  <Link
+                    to="/register"
+                    className="flex-1 px-3 py-2 text-sm text-center bg-ink-900 text-parchment-50 rounded-md"
+                  >
+                    {t.nav.signup}
+                  </Link>
+                </>
+              )}
             </div>
           </div>
         )}

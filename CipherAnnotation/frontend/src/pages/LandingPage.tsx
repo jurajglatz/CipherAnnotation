@@ -1,5 +1,4 @@
-import React, { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React from 'react';
 import { useAuth } from '@/hooks';
 import LandingNavbar from '@/components/landing/LandingNavbar';
 import Hero from '@/components/landing/Hero';
@@ -10,17 +9,9 @@ import CtaBanner from '@/components/landing/CtaBanner';
 import LandingFooter from '@/components/landing/LandingFooter';
 
 const LandingPage: React.FC = () => {
-  const { isAuthenticated, isLoading } = useAuth();
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    if (!isLoading && isAuthenticated) {
-      navigate('/documents', { replace: true });
-    }
-  }, [isAuthenticated, isLoading, navigate]);
+  const { isLoading } = useAuth();
 
   if (isLoading) return null;
-  if (isAuthenticated) return null;
 
   return (
     <div className="min-h-screen bg-parchment-50 text-ink-900">

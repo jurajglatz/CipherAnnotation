@@ -2,10 +2,12 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, BookOpen, Sparkles } from 'lucide-react';
 import { copy } from '@/i18n/landingCopy';
+import { useAuth } from '@/hooks';
 import AnnotationCarousel from './AnnotationCarousel';
 
 export const Hero: React.FC = () => {
   const t = copy;
+  const { isAuthenticated } = useAuth();
 
   const scrollToFeatures = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -38,10 +40,10 @@ export const Hero: React.FC = () => {
 
             <div className="mt-9 flex flex-col sm:flex-row gap-4 justify-center lg:justify-start items-center">
               <Link
-                to="/register"
+                to={isAuthenticated ? '/documents' : '/register'}
                 className="group inline-flex items-center gap-2 px-7 py-3.5 bg-ink-900 hover:bg-primary-700 text-parchment-50 font-semibold rounded-md shadow-lg shadow-ink-900/20 transition-all hover:shadow-xl hover:-translate-y-0.5"
               >
-                {t.hero.ctaPrimary}
+                {isAuthenticated ? 'Go to app' : t.hero.ctaPrimary}
                 <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
               </Link>
               <a
