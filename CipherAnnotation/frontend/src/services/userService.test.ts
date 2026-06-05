@@ -45,4 +45,29 @@ describe('userService', () => {
     expect(mock.history.get[0].params).toEqual({ q: 'bob', limit: 5 });
     expect(mock.history.get[0].signal).toBe(controller.signal);
   });
+
+  it('listAll fetches a paginated page with query params', async () => {
+    const payload = {
+      data: [{ id: 'u1', email: 'a@b.c', name: 'Alice', role: 'User', createdAt: '2024-01-01' }],
+      total: 1,
+      page: 2,
+      pageSize: 5,
+    };
+    mock.onGet('/admin/users').reply(200, payload);
+
+    const res = await userService.listAll('ali', 2, 5);
+
+    expect(res).toEqual(payload);
+    expect(mock.history.get[0].params).toEqual({ q: 'ali', page: 2, pageSize: 5 });
+  });
+
+  it('updateRole PUTs the new role to the user endpoint', async () => {
+    mock.onPut('/admin/users/u1/role').reply(204);
+
+    await userService.updateRole('u1', 'Admin');
+
+    expect(mock.history.put).toHaveLength(1);
+    expect(JSON.parse(mock.history.put[0].data)).toEqual({ role: 'Admin' });
+    expect(mock.history.put[0].url).toBe('/admin/users/u1/role');
+  });
 });
