@@ -272,7 +272,6 @@ public class PageServiceTests
         public Task<byte[]> BinarizeAsync(byte[] data, CancellationToken ct = default) => Task.FromResult(data);
         public Task<byte[]> ThresholdAsync(byte[] data, float threshold, CancellationToken ct = default) => Task.FromResult(data);
         public Task<byte[]> AdjustContrastAsync(byte[] data, float amount, CancellationToken ct = default) => Task.FromResult(data);
-        public Task<byte[]> DeskewAsync(byte[] data, CancellationToken ct = default) => Task.FromResult(data);
         public Task<byte[]> RotateAsync(byte[] data, float degrees, CancellationToken ct = default) => Task.FromResult(data);
         public Task<byte[]> RemoveNoiseAsync(byte[] data, CancellationToken ct = default) => Task.FromResult(data);
         public Task<byte[]> ScaleAsync(byte[] data, float factor, CancellationToken ct = default) => Task.FromResult(data);

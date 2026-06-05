@@ -21,7 +21,7 @@ export const copy = {
     subtitle: 'Four steps from a scan to a dataset.',
     steps: [
       { title: 'Upload', desc: 'Drop in a scan of your cipher manuscript — PDF or image.' },
-      { title: 'Preprocess', desc: 'Binarize, deskew, boost contrast, rotate — one click.' },
+      { title: 'Preprocess', desc: 'Binarize, boost contrast, rotate — one click.' },
       { title: 'Annotate', desc: 'Mark each symbol and assign a value from your library.' },
       { title: 'Export', desc: 'Download the dataset as COCO or YOLO and start training.' },
     ],
@@ -30,7 +30,7 @@ export const copy = {
     title: 'Everything you need',
     subtitle: 'Built around a real research workflow.',
     items: [
-      { title: 'Image preprocessing', desc: 'Binarize, deskew, adjust contrast, rotate — right in your browser.' },
+      { title: 'Image preprocessing', desc: 'Binarize, adjust contrast, rotate — right in your browser.' },
       { title: 'Symbol library', desc: 'Curate your own collection of symbols with consistent values.' },
       { title: 'Multi-page documents', desc: 'Manage whole manuscripts, not just single pages.' },
       { title: 'Collaboration', desc: 'Share documents with colleagues and annotate together.' },

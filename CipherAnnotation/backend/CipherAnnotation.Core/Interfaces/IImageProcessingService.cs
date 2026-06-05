@@ -10,8 +10,6 @@ public interface IImageProcessingService
 
     Task<byte[]> AdjustContrastAsync(byte[] input, float contrastFactor, CancellationToken cancellationToken = default);
 
-    Task<byte[]> DeskewAsync(byte[] input, CancellationToken cancellationToken = default);
-
     Task<byte[]> RotateAsync(byte[] input, float angleInDegrees, CancellationToken cancellationToken = default);
 
     Task<byte[]> RemoveNoiseAsync(byte[] input, CancellationToken cancellationToken = default);

@@ -44,13 +44,6 @@ public class ImageProcessingService : IImageProcessingService
         return ProcessAsync(input, x => x.Contrast(contrastFactor), ct);
     }
 
-    public Task<byte[]> DeskewAsync(byte[] input, CancellationToken ct = default)
-    {
-        // TODO: proper angle-detection deskew. For now pass-through re-encode.
-        _logger.LogWarning("Deskew is not yet implemented; returning image unchanged.");
-        return ProcessAsync(input, _ => { }, ct);
-    }
-
     public Task<byte[]> RotateAsync(byte[] input, float angleInDegrees, CancellationToken ct = default)
         => ProcessAsync(input, x => x.Rotate(angleInDegrees), ct);
 

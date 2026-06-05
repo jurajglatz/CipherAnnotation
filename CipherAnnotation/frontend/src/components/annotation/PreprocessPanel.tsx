@@ -24,7 +24,6 @@ export const PREPROCESS_OPS = [
   { id: 'binarize', label: 'Binarize', description: 'Convert to black & white', hasParam: false, cssOnly: true },
   { id: 'threshold', label: 'Threshold', description: 'Binary threshold level', hasParam: true, min: 0, max: 1, step: 0.05, defaultValue: 0.5, unit: '', cssOnly: true },
   { id: 'contrast', label: 'Contrast', description: 'Adjust contrast intensity', hasParam: true, min: 0.1, max: 3, step: 0.1, defaultValue: 1.5, unit: 'x', cssOnly: true },
-  { id: 'deskew', label: 'Deskew', description: 'Auto-correct rotation', hasParam: false, cssOnly: false },
   { id: 'rotate', label: 'Rotate', description: 'Rotate by angle', hasParam: true, min: 0, max: 360, step: 1, defaultValue: 90, unit: '°', cssOnly: true },
   { id: 'denoise', label: 'Denoise', description: 'Reduce image noise', hasParam: false, cssOnly: false },
   { id: 'scale', label: 'Scale', description: 'Resize image', hasParam: true, min: 0.1, max: 4, step: 0.1, defaultValue: 1.5, unit: 'x', cssOnly: true },
@@ -348,7 +347,6 @@ export function buildPreprocessCss(operations: PreprocessOperation[]): {
       case 'scale':
         transforms.push(`scale(${op.value ?? 1})`);
         break;
-      // deskew: no CSS preview
     }
   }
 

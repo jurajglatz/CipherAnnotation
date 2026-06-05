@@ -436,7 +436,6 @@ public class PageService : IPageService
                 "binarize" => await _imageProcessing.BinarizeAsync(currentBytes, ct),
                 "threshold" => await _imageProcessing.ThresholdAsync(currentBytes, op.Value ?? 0.5f, ct),
                 "contrast" => await _imageProcessing.AdjustContrastAsync(currentBytes, op.Value ?? 1.5f, ct),
-                "deskew" => await _imageProcessing.DeskewAsync(currentBytes, ct),
                 "rotate" => await _imageProcessing.RotateAsync(currentBytes, op.Value ?? 90f, ct),
                 "denoise" or "remove_noise" => await _imageProcessing.RemoveNoiseAsync(currentBytes, ct),
                 "scale" => await _imageProcessing.ScaleAsync(currentBytes, op.Value ?? 1.5f, ct),
