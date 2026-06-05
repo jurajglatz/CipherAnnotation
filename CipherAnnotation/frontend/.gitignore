@@ -1,3 +1,6 @@
+# Stray local test-output dumps
+/unit-tests.txt
+
 # Playwright
 /e2e/.auth/
 /e2e/images/
